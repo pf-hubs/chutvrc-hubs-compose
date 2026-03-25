@@ -192,6 +192,11 @@ credentials and any other settings required for your environment.
 | Stop    | `bin/down`                               |
 | Restart | `bin/down && mutagen daemon stop && bin/up` |
 
+> **Known issue:** After restarting with `bin/down` and `bin/up`, Hubs may fail
+> to connect to Dialog (port 4443). If this happens, fully **quit** Docker
+> Desktop and start it again — a simple "Restart" from the Docker Desktop menu
+> is not sufficient. Then run `bin/up` as usual.
+
 ---
 
 ## 4. Service Endpoints
