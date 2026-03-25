@@ -26,10 +26,15 @@ services:
     ports:
       - "4443:4443"
       # This should be the same as MEDIASOUP_MIN_PORT and MEDIASOUP_MAX_PORT
-      # You might neeed to increase this number depending on how many clients you are connecting.
-      # (Keep the ports range small to improve container startup time)
+      # You might need to increase this number depending on how many clients you are connecting.
+      # (Keep the ports range small to avoid Docker Desktop port binding failures on macOS)
       - "40000-40050:40000-40050"
       - "40000-40050:40000-40050/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7001/meta"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     volumes:
       - dialog:/code
     working_dir: /code
@@ -40,6 +45,8 @@ services:
     command: npm run local
     environment:
       INTERNAL_HOSTNAME: hubs-admin
+      RETICULUM_SERVER: "hubs.local:4000"
+      POSTGREST_SERVER: ""
     healthcheck:
       test: ["CMD", "curl", "-fk", "https://localhost:8989/admin.html"]
     platform: linux/amd64
@@ -55,6 +62,7 @@ services:
     command: npm run local
     environment:
       INTERNAL_HOSTNAME: hubs-client
+      RETICULUM_HOST: hubs.local
     healthcheck:
       start_period: 3m30s
       test: ["CMD", "curl", "-fk", "https://localhost:8080"]
@@ -131,11 +139,10 @@ x-mutagen:
         paths:
           - ".DS_Store"
           - ".gitignore"
-          - "/certs/"
           - "/node_modules/"
           - "package-lock.sha512"
         vcs: true
-      mode: "two-way-resolved"
+      mode: "one-way-replica"
     dialog:
       alpha: ./services/dialog
       beta: "volume://dialog"
@@ -144,7 +151,6 @@ x-mutagen:
       beta: "volume://hubs"
       ignore:
         paths:
-          - "/admin/certs/"
           - "/admin/node_modules/"
     reticulum:
       alpha: ./services/reticulum
