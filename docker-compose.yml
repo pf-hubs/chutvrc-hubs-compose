@@ -45,7 +45,7 @@ services:
     command: npm run local
     environment:
       INTERNAL_HOSTNAME: hubs-admin
-      RETICULUM_SERVER: "hubs.local:4000"
+      RETICULUM_SERVER: "${HUBS_HOST:-hubs.local}:4000"
       POSTGREST_SERVER: ""
     healthcheck:
       test: ["CMD", "curl", "-fk", "https://localhost:8989/admin.html"]
@@ -62,7 +62,8 @@ services:
     command: npm run local
     environment:
       INTERNAL_HOSTNAME: hubs-client
-      RETICULUM_HOST: hubs.local
+      RETICULUM_HOST: ${HUBS_HOST:-hubs.local}
+      CORS_PROXY_SERVER: "${HUBS_HOST:-hubs.local}:4000"
     healthcheck:
       start_period: 3m30s
       test: ["CMD", "curl", "-fk", "https://localhost:8080"]
@@ -78,7 +79,7 @@ services:
       dockerfile: dockerfiles/hubs.Dockerfile
     command: npm run storybook
     healthcheck:
-      test: ["CMD", "curl", "-fk", "http://hubs.local:6006"]
+      test: ["CMD", "curl", "-fk", "http://localhost:6006"]
     platform: linux/amd64
     ports:
       - "6006:6006"
@@ -99,7 +100,8 @@ services:
     environment:
       DB_CREDENTIALS: postgres
       DB_HOST: db
-      DIALOG_HOSTNAME: "hubs.local"
+      DIALOG_HOSTNAME: "${HUBS_HOST:-hubs.local}"
+      HUBS_HOST: "${HUBS_HOST:-hubs.local}"
       DIALOG_PORT: 4443
       HUBS_ADMIN_INTERNAL_HOSTNAME: hubs-admin
       HUBS_CLIENT_INTERNAL_HOSTNAME: hubs-client
@@ -115,7 +117,9 @@ services:
       context: .
       dockerfile: dockerfiles/spoke.Dockerfile
     environment:
-      CORS_PROXY_SERVER: "hubs-proxy.local:4000"
+      CORS_PROXY_SERVER: "${HUBS_HOST:-hubs.local}:4000"
+      HUBS_SERVER: "${HUBS_HOST:-hubs.local}:4000"
+      RETICULUM_SERVER: "${HUBS_HOST:-hubs.local}:4000"
       INTERNAL_HOSTNAME: spoke
     platform: linux/amd64
     ports:
