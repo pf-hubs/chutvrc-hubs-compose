@@ -1,3 +1,9 @@
 /services/
 *.pem
 .env
+
+# k8s generated/secret files
+k8s/hcce.yaml
+k8s/overlays/secrets.env
+k8s/private_key.pem
+k8s/public_key.pem

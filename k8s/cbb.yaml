@@ -1,0 +1,46 @@
+########################################################################
+######################   cbb rbac  #####################################
+########################################################################
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cbb-sa
+  namespace: hcce
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cbb-rb--hcce
+  namespace: hcce
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+- kind: ServiceAccount
+  name: cbb-sa
+  namespace: hcce
+---
+########################################################################
+#########################   certbotbot   ###############################
+########################################################################
+apiVersion: v1
+kind: Pod
+metadata:
+  name: certbotbot-http
+  namespace: hcce
+  labels:
+    app: certbotbot-http
+spec:
+  restartPolicy: Never
+  serviceAccountName: cbb-sa
+  containers:
+  - name: myapp
+    image: mozillareality/certbotbot_http:dev-47
+    env:
+    - name: "DOMAIN"
+      value: "cors.web.aks.cf-utvrc.org"
+    - name: "NAMESPACE"
+      value: "hcce"
+    - name: "CERT_NAME"
+      value: "cert-cors.web.aks.cf-utvrc.org"
