@@ -7,6 +7,8 @@ chutvrc for local development. It runs on macOS, Linux, and Windows.
 > security or scalability. The permissions files were generated for development
 > purposes only.
 
+> **Note (26260326):** The configuration steps here are not fully validated yet for Linux and Windows.
+
 ---
 
 ## 1. Prerequisites
@@ -152,6 +154,7 @@ bin/up
 ### Step 7 — Sign In
 
 1. Open https://hubs.local:4000 in your browser and click the sign-in button.
+   - If it doesn't open successfully, try again after waiting a minute, or clear your browser cache.
 2. Enter an email address (it does not have to be real). Remember this address —
    it will be used for your admin account.
 3. Find the magic verification link in the Reticulum logs:
@@ -161,6 +164,12 @@ bin/up
    Add `-f` for a live-updating log.
 4. Copy the link from the log output and open it in a new tab in the **same
    browser**.
+   - The link should look like this:
+     `https://hubs.local:4000/?auth_origin=hubs&auth_payload=...&auth_token=...&auth_topic=...`
+     which is included inside a log like the one below:
+   ```
+   %Bamboo.Email{from: {nil, "info@hubs-mail.com"}, to: [nil: "xxx@xxx.xxx"], cc: [], bcc: [], subject: "Your  Sign-In Link", html_body: nil, text_body: "To sign-in to , please visit the link below. If you did not make this request, please ignore this e-mail.\n\n https://hubs.local:4000/?auth_origin=hubs&auth_payload=...&auth_token=...&auth_topic=...", headers: %{}, attachments: [], assigns: %{}, private: %{}}
+   ```
 
 ### Step 8 — Promote Account to Admin
 
@@ -180,22 +189,25 @@ promote your account.
 
 ### Step 9 — Configure Admin Settings
 
-Open the admin panel at https://hubs.local:4000/admin and fill in SMTP
+Open the admin panel https://hubs.local:4000/admin and fill in SMTP
 credentials and any other settings required for your environment.
+
+- **SMTP** (configure the email account used to send sign-in authentication emails): Side menu → "Server Settings" → "Email" tab
+- **WebRTC SFU** (Dialog, Sora, LiveKit, etc.): Side menu → "Server Settings" → "WEBRTC" tab
 
 ---
 
 ## 3. Stopping and Restarting
 
-| Action  | Command                                  |
-| ------- | ---------------------------------------- |
-| Stop    | `bin/down`                               |
+| Action  | Command                                     |
+| ------- | ------------------------------------------- |
+| Stop    | `bin/down`                                  |
 | Restart | `bin/down && mutagen daemon stop && bin/up` |
 
 > **Known issue:** After restarting with `bin/down` and `bin/up`, Hubs may fail
 > to connect to Dialog (port 4443). If this happens, fully **quit** Docker
-> Desktop and start it again — a simple "Restart" from the Docker Desktop menu
-> is not sufficient. Then run `bin/up` as usual.
+> Desktop and start it again (a simple "Restart" from the Docker Desktop menu
+> is not sufficient.) Then run `bin/up` as usual.
 
 ---
 
@@ -203,10 +215,10 @@ credentials and any other settings required for your environment.
 
 Once running, the following services are accessible:
 
-| Service     | URL                        |
-| ----------- | -------------------------- |
-| Reticulum   | https://hubs.local:4000    |
-| Hubs Client | https://hubs.local:8080    |
-| Hubs Admin  | https://hubs.local:8989    |
-| Spoke       | https://hubs.local:9090    |
-| Dialog      | https://hubs.local:4443    |
+| Service     | URL                     |
+| ----------- | ----------------------- |
+| Reticulum   | https://hubs.local:4000 |
+| Hubs Client | https://hubs.local:8080 |
+| Hubs Admin  | https://hubs.local:8989 |
+| Spoke       | https://hubs.local:9090 |
+| Dialog      | https://hubs.local:4443 |
