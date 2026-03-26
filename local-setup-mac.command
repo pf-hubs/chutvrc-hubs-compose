@@ -76,7 +76,7 @@ echo ""
 info "Phase 2: Running setup..."
 echo ""
 
-source ./setup-common.sh
+source ./local-setup-common.sh
 
 ensure_docker_running
 echo ""

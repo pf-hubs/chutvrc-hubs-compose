@@ -16,13 +16,13 @@ chutvrc for local development. It runs on macOS, Linux, and Windows.
 For **Scenario A (Local Single-Device Development)**, use the one-click setup
 scripts that automate prerequisites installation and initial setup:
 
-- **macOS:** Double-click `setup-mac.command` in Finder.
-- **Windows:** Double-click `setup-windows.bat` in Explorer.
+- **macOS:** Double-click `local-setup-mac.command` in Finder.
+- **Windows:** Double-click `local-setup-windows.bat` in Explorer.
 
 The scripts will install dependencies, initialize services, generate SSL
-certificates, configure the hosts file, and start everything up. At the end,
-they display instructions for the remaining manual steps (sign-in, admin
-promotion, admin settings).
+certificates, configure the hosts file, and start everything up. They then
+guide you interactively through the remaining steps — including automatically
+fetching the sign-in link and promoting your account to admin.
 
 > **Note:** If you prefer to set up manually or need a different scenario
 > (LAN or Remote Server), follow the full instructions below.

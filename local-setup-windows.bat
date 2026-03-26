@@ -190,7 +190,7 @@ set "PROJECT_DIR=!PROJECT_DIR:\=/!"
 REM Remove trailing slash
 if "!PROJECT_DIR:~-1!"=="/" set "PROJECT_DIR=!PROJECT_DIR:~0,-1!"
 
-"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && source ./setup-common.sh && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
+"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && source ./local-setup-common.sh && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
 
 if errorlevel 1 (
     echo.

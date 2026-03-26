@@ -69,7 +69,7 @@ Some scripts used to run `hubs-compose` are meant to run in a Unix-like `bash` s
 ## Initial Setup
 
 > [!NOTE]
-> Read [GETTING_STARTED_FOR_CHUTVRC.md] instead if you are using this project for **chutvrc**, not Hubs-Foundation.
+> Read [START_DEVELOPMENT_FOR_CHUTVRC.md] instead if you are using this project for **chutvrc**, not Hubs-Foundation.
 
 1. Initialize the services with `bin/init`
 2. Start the containers with `bin/up`
