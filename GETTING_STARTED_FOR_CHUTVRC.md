@@ -11,6 +11,24 @@ chutvrc for local development. It runs on macOS, Linux, and Windows.
 
 ---
 
+## Quick Start (Recommended)
+
+For **Scenario A (Local Single-Device Development)**, use the one-click setup
+scripts that automate prerequisites installation and initial setup:
+
+- **macOS:** Double-click `setup-mac.command` in Finder.
+- **Windows:** Double-click `setup-windows.bat` in Explorer.
+
+The scripts will install dependencies, initialize services, generate SSL
+certificates, configure the hosts file, and start everything up. At the end,
+they display instructions for the remaining manual steps (sign-in, admin
+promotion, admin settings).
+
+> **Note:** If you prefer to set up manually or need a different scenario
+> (LAN or Remote Server), follow the full instructions below.
+
+---
+
 ## 1. Prerequisites
 
 ### All Platforms
@@ -303,10 +321,11 @@ bin/up
    - If it doesn't open successfully, try again after waiting a minute, or clear your browser cache.
 2. Enter an email address (it does not have to be real). Remember this address —
    it will be used for your admin account.
-3. Find the magic verification link in the Reticulum logs:
+3. Find the sign-in link in the Reticulum logs:
    ```bash
-   docker compose logs reticulum
+   docker compose logs reticulum | grep auth_token
    ```
+   The link looks like `https://hubs.local:4000/?auth_origin=hubs&auth_payload=...&auth_token=...`.
    Add `-f` for a live-updating log.
 4. Copy the link from the log output and open it in a new tab in the **same
    browser**.
@@ -316,16 +335,17 @@ bin/up
 Shell into the Reticulum container and start an IEx console:
 
 ```bash
-services/reticulum/bin/iex -S mix
+docker compose exec reticulum iex -S mix
 ```
 
-Then follow the instructions at
-https://github.com/Hubs-Foundation/reticulum#6-creating-an-admin-user to
-promote your account.
+Then run the following command to promote the first account to admin:
+
+```elixir
+Ret.Account |> Ret.Repo.all() |> Enum.at(0) |> Ecto.Changeset.change(is_admin: true) |> Ret.Repo.update!()
+```
 
 > **Note:** You must have signed in at least once (Step 6) before you can
-> promote the account. After promotion, clear your browser's local storage for
-> your host and sign in again.
+> promote the account. After promotion, sign out and sign in again.
 
 ### Step 8 — Configure Admin Settings
 
