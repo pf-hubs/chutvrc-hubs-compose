@@ -6,19 +6,24 @@ prefix='\n\033[1;37m'
 suffix='\033[0m\n'
 
 servicesdir=$basedir/services
+
+# Idempotent clone: skip `git clone` when the service is already cloned, so a
+# failed mid-init run can be retried without manual cleanup.
+clone_or_skip() {
+    local repo="$1" dest="$2" branch="$3"
+    if [ -d "$dest/.git" ]; then
+        echo "  $dest already cloned — skipping."
+    else
+        git clone "$repo" "$dest" || return 1
+    fi
+    (cd "$dest" && git checkout "$branch") || return 1
+}
+
 echo -e ${prefix}Cloning source repositories$suffix
-git clone https://github.com/pf-hubs/chutvrc-reticulum.git "$servicesdir"/reticulum
-cd "$servicesdir"/reticulum && git checkout edit-config-for-docker-compose
-cd ../..
-git clone https://github.com/pf-hubs/chutvrc-dialog.git "$servicesdir"/dialog
-cd "$servicesdir"/dialog && git checkout edit-config-for-docker-compose
-cd ../..
-git clone https://github.com/pf-hubs/chutvrc-hubs.git "$servicesdir"/hubs
-cd "$servicesdir"/hubs && git checkout edit-config-for-docker-compose
-cd ../..
-git clone https://github.com/pf-hubs/chutvrc-spoke.git "$servicesdir"/spoke
-cd "$servicesdir"/spoke && git checkout edit-config-for-docker-compose
-cd ../..
+clone_or_skip https://github.com/pf-hubs/chutvrc-reticulum.git "$servicesdir"/reticulum edit-config-for-docker-compose || exit 1
+clone_or_skip https://github.com/pf-hubs/chutvrc-dialog.git    "$servicesdir"/dialog    edit-config-for-docker-compose || exit 1
+clone_or_skip https://github.com/pf-hubs/chutvrc-hubs.git      "$servicesdir"/hubs      edit-config-for-docker-compose || exit 1
+clone_or_skip https://github.com/pf-hubs/chutvrc-spoke.git     "$servicesdir"/spoke     edit-config-for-docker-compose || exit 1
 
 composefile=$basedir/docker-compose.yml
 echo -e ${prefix}Initializing Reticulum$suffix &&
