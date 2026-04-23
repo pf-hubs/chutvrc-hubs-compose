@@ -347,7 +347,9 @@ Ret.Account |> Ret.Repo.all() |> Enum.at(0) |> Ecto.Changeset.change(is_admin: t
 ```
 
 > **Note:** You must have signed in at least once (Step 6) before you can
-> promote the account. After promotion, sign out and sign in again.
+> promote the account. After promotion, sign out and sign in again. Since
+> SMTP is not configured yet (that happens in Step 8), you will need to
+> fetch the sign-in link from the Reticulum logs again, just as in Step 6.
 
 ### Step 8 — Configure Admin Settings
 
