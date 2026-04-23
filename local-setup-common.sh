@@ -215,8 +215,28 @@ guided_post_setup() {
         echo "     Ret.Account |> Ret.Repo.all() |> Enum.at(0) |> Ecto.Changeset.change(is_admin: true) |> Ret.Repo.update!()"
     fi
     echo ""
-    echo "  Please sign out and sign in again in the browser to activate admin."
-    prompt_and_wait "Sign out and sign back in, then press Enter to continue"
+    echo "  Please sign out in the browser, then sign in again to activate admin."
+    echo "  (Since SMTP is not configured yet, we will fetch the sign-in link from logs.)"
+    prompt_and_wait "Sign out and enter your email in the browser, then press Enter"
+
+    info "Fetching sign-in link from Reticulum logs..."
+    local magic_link2=""
+    magic_link2=$(docker compose logs reticulum 2>/dev/null | grep -oE 'https?://[^ ]*auth_token=[^ ]*' | tail -1 | sed 's/[",]$//')
+
+    if [ -n "$magic_link2" ]; then
+        echo ""
+        success "Sign-in link found:"
+        echo ""
+        echo "  $magic_link2"
+        echo ""
+        echo "  Open this link in the SAME browser where you entered your email."
+    else
+        warn "Could not find sign-in link automatically."
+        echo "  Try running this in another terminal:"
+        echo "    docker compose logs reticulum | grep auth_token"
+        echo "  Then open the link in the SAME browser."
+    fi
+    prompt_and_wait "Open the sign-in link and complete sign-in, then press Enter to continue"
 
     # Step 4: Configure admin settings (manual — browser)
     echo "------------------------------------------------------------"

@@ -1,15 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-title chutvrc Compose — Windows Setup
+title chutvrc Compose - Windows Setup
 
 echo.
 echo ============================================================
-echo   chutvrc Compose — Windows Setup
+echo   chutvrc Compose - Windows Setup
 echo ============================================================
 echo.
 
-REM ── Phase 1: Prerequisites ─────────────────────────────────────────────────
+REM -- Phase 1: Prerequisites -------------------------------------------------
 
 echo Phase 1: Checking prerequisites...
 echo.
@@ -147,7 +147,7 @@ echo.
 echo   [OK] All prerequisites satisfied.
 echo.
 
-REM ── Phase 2: Hosts file ───────────────────────────────────────────────────
+REM -- Phase 2: Hosts file ----------------------------------------------------
 
 echo Phase 2: Configuring hosts file...
 
@@ -177,11 +177,11 @@ if errorlevel 1 (
 )
 echo.
 
-REM ── Phase 3: Run setup via Git Bash ────────────────────────────────────────
+REM -- Phase 3: Run setup via Git Bash ----------------------------------------
 
 echo Phase 3: Running setup via Git Bash...
 echo   (This will open a Git Bash window for the remaining steps.)
-echo   (The setup may take a while — please be patient.)
+echo   (The setup may take a while -- please be patient.)
 echo.
 
 REM Convert Windows path to Unix-style for Git Bash
