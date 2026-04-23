@@ -81,9 +81,13 @@ fetching the sign-in link and promoting your account to admin.
    ```
    If you have already cloned this repository, delete your local copy and
    re-clone it after changing this setting.
-5. Install `mkcert` via [Chocolatey](https://chocolatey.org/)
-   (`choco install mkcert`) or [Scoop](https://scoop.sh/)
-   (`scoop install mkcert`).
+5. `mkcert` is installed automatically by `local-setup-windows.bat` — it
+   downloads the latest release from
+   [mkcert's GitHub releases](https://github.com/FiloSottile/mkcert/releases/latest)
+   into `%LOCALAPPDATA%\mkcert\` and adds it to your user PATH (no admin
+   needed). If you prefer, you can pre-install it yourself with
+   [Scoop](https://scoop.sh/) (`scoop install mkcert`) or by downloading the
+   binary manually from the releases page.
 
 ---
 

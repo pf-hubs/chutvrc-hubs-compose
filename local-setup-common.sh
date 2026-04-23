@@ -40,10 +40,21 @@ ensure_docker_running() {
 
 # ── Run bin/init (clone repos, build images, install deps) ───────────────────
 run_init() {
-    if [ -d "services/reticulum/.git" ]; then
-        success "Services already cloned. Skipping bin/init."
-        echo "(Run bin/reset to re-initialize from scratch.)"
+    # "Cloned" is not enough — bin/init can fail mid-way (leaving services cloned
+    # but with no deps installed), and the container start later fails cryptically
+    # with "webpack not found", "Cannot find module", etc. So we treat the run as
+    # successful only when a sentinel file is present; bin/init writes that file
+    # on full success.
+    local sentinel="$basedir/.bin-init-completed"
+    if [ -f "$sentinel" ]; then
+        success "Services already initialized. Skipping bin/init."
+        echo "(Delete $sentinel and run bin/reset to re-initialize from scratch.)"
         return 0
+    fi
+
+    if [ -d "services/reticulum/.git" ]; then
+        warn "Services are cloned but no init-completed sentinel found."
+        warn "Re-running bin/init to (re)install dependencies — this is idempotent."
     fi
 
     info "Running bin/init (this will take a while)..."
@@ -52,6 +63,7 @@ run_init() {
         echo "Check the output above for details. You can re-run this script to retry."
         return 1
     fi
+    touch "$sentinel"
     success "bin/init completed successfully."
 }
 
