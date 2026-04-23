@@ -3,6 +3,9 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 title chutvrc Compose - Windows Setup
 
+REM Define ANSI escape character for colored output (Windows 10+)
+for /f %%e in ('echo prompt $E ^| cmd') do set "ESC=%%e"
+
 echo.
 echo ============================================================
 echo   chutvrc Compose - Windows Setup
@@ -17,11 +20,11 @@ echo.
 REM 1.1 Docker Desktop
 where docker >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Docker is not installed.
-    echo Please install Docker Desktop for Windows:
-    echo   https://docs.docker.com/desktop/setup/install/windows-install/
+    echo !ESC![91m[ERROR] Docker is not installed.!ESC![0m
+    echo !ESC![93mPlease install Docker Desktop for Windows:!ESC![0m
+    echo !ESC![93m  https://docs.docker.com/desktop/setup/install/windows-install/!ESC![0m
     echo.
-    echo After installing, re-run this script.
+    echo !ESC![93mAfter installing, re-run this script.!ESC![0m
     goto :end
 )
 docker info >nul 2>&1
@@ -58,12 +61,12 @@ if "!GIT_BASH!"=="" (
     )
 )
 if "!GIT_BASH!"=="" (
-    echo [ERROR] Git Bash not found.
-    echo Please install Git for Windows:
-    echo   https://gitforwindows.org/
+    echo !ESC![91m[ERROR] Git Bash not found.!ESC![0m
+    echo !ESC![93mPlease install Git for Windows:!ESC![0m
+    echo !ESC![93m  https://gitforwindows.org/!ESC![0m
     echo.
-    echo Make sure to select "Git Bash" during installation.
-    echo After installing, re-run this script.
+    echo !ESC![93mMake sure to select "Git Bash" during installation.!ESC![0m
+    echo !ESC![93mAfter installing, re-run this script.!ESC![0m
     goto :end
 )
 echo   [OK] Git Bash found: !GIT_BASH!
@@ -100,14 +103,14 @@ if errorlevel 1 (
         scoop install mkcert
         goto :mkcert_done
     )
-    echo   [ERROR] mkcert is not installed and no package manager found.
-    echo   Please install mkcert using one of these methods:
-    echo     Option A: Install Chocolatey (https://chocolatey.org/install) then run:
-    echo       choco install mkcert
-    echo     Option B: Install Scoop (https://scoop.sh/) then run:
-    echo       scoop install mkcert
+    echo   !ESC![91m[ERROR] mkcert is not installed and no package manager found.!ESC![0m
+    echo   !ESC![93mPlease install mkcert using one of these methods:!ESC![0m
+    echo   !ESC![93m  Option A: Install Chocolatey ^(https://chocolatey.org/install^) then run:!ESC![0m
+    echo   !ESC![93m    choco install mkcert!ESC![0m
+    echo   !ESC![93m  Option B: Install Scoop ^(https://scoop.sh/^) then run:!ESC![0m
+    echo   !ESC![93m    scoop install mkcert!ESC![0m
     echo.
-    echo   After installing mkcert, re-run this script.
+    echo   !ESC![93mAfter installing mkcert, re-run this script.!ESC![0m
     goto :end
 )
 :mkcert_done
@@ -122,23 +125,23 @@ if errorlevel 1 set "MUTAGEN_MISSING=1"
 
 if "!MUTAGEN_MISSING!"=="1" (
     echo.
-    echo   [ERROR] mutagen and/or mutagen-compose not found.
+    echo   !ESC![91m[ERROR] mutagen and/or mutagen-compose not found.!ESC![0m
     echo.
-    echo   Please install both from the official releases:
-    echo     Mutagen:         https://github.com/mutagen-io/mutagen/releases
-    echo     Mutagen Compose: https://github.com/mutagen-io/mutagen-compose/releases
+    echo   !ESC![93mPlease install both from the official releases:!ESC![0m
+    echo   !ESC![93m  Mutagen:         https://github.com/mutagen-io/mutagen/releases!ESC![0m
+    echo   !ESC![93m  Mutagen Compose: https://github.com/mutagen-io/mutagen-compose/releases!ESC![0m
     echo.
-    echo   Installation steps:
-    echo     1. Download the Windows zip for each from the links above
-    echo     2. Extract mutagen.exe and mutagen-compose.exe
-    echo     3. Place them in a directory that is in your PATH
-    echo        (e.g., C:\Program Files\Mutagen\)
-    echo     4. Add that directory to your system PATH if needed
+    echo   !ESC![93mInstallation steps:!ESC![0m
+    echo   !ESC![93m  1. Download the Windows zip for each from the links above!ESC![0m
+    echo   !ESC![93m  2. Extract mutagen.exe and mutagen-compose.exe!ESC![0m
+    echo   !ESC![93m  3. Place them in a directory that is in your PATH!ESC![0m
+    echo   !ESC![93m     ^(e.g., C:\Program Files\Mutagen\^)!ESC![0m
+    echo   !ESC![93m  4. Add that directory to your system PATH if needed!ESC![0m
     echo.
-    echo   IMPORTANT: The Mutagen and Mutagen Compose versions must match.
-    echo   Install the latest of both at the same time.
+    echo   !ESC![93mIMPORTANT: The Mutagen and Mutagen Compose versions must match.!ESC![0m
+    echo   !ESC![93mInstall the latest of both at the same time.!ESC![0m
     echo.
-    echo   After installing, re-run this script.
+    echo   !ESC![93mAfter installing, re-run this script.!ESC![0m
     goto :end
 )
 echo   [OK] mutagen and mutagen-compose installed.

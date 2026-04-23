@@ -17,9 +17,9 @@ fail()    { echo -e "${RED}$*${RESET}"; }
 ensure_docker_running() {
     if ! command -v docker &>/dev/null; then
         fail "ERROR: Docker is not installed."
-        echo "Please install Docker Desktop first:"
-        echo "  macOS:   https://docs.docker.com/desktop/setup/install/mac-install/"
-        echo "  Windows: https://docs.docker.com/desktop/setup/install/windows-install/"
+        warn "Please install Docker Desktop first:"
+        warn "  macOS:   https://docs.docker.com/desktop/setup/install/mac-install/"
+        warn "  Windows: https://docs.docker.com/desktop/setup/install/windows-install/"
         return 1
     fi
 

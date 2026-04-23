@@ -29,6 +29,8 @@ fetching the sign-in link and promoting your account to admin.
 
 ---
 
+# Manual Setup for chutvrc Compose
+
 ## 1. Prerequisites
 
 ### All Platforms
