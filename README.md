@@ -32,10 +32,12 @@ For the full feature list and screenshots, see the
 
 ---
 
-## Quick Start (double-click)
+## Quick Start (double-click) — one-time setup
 
 The fastest way to get a single-device development instance running is the
-one-click setup script for your platform.
+one-click setup script for your platform. **Run this only once**, the very
+first time you set up the project. After that, use the daily commands in the
+next section.
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
    and start it.
@@ -45,13 +47,18 @@ one-click setup script for your platform.
    - **Windows:** `local-setup-windows.bat` (in Explorer)
 
 The script installs the remaining dependencies (`mutagen`, `mutagen-compose`,
-`mkcert`), clones each service from `pf-hubs/chutvrc-*`, builds the Docker
-images, generates SSL certificates with `mkcert`, configures your hosts file,
-and starts everything. It then guides you through signing in and promoting
-your account to admin.
+`mkcert`), clones each service from `pf-hubs/chutvrc-*` into `services/`,
+builds the Docker images, generates SSL certificates with `mkcert`,
+configures your hosts file, and starts everything. It then guides you through
+signing in and promoting your account to admin.
 
 When the guided setup finishes, chutvrc is available at
 **https://hubs.local:4000**.
+
+The setup leaves a marker file (`.bin-init-completed`) in the project root.
+If you re-run the setup script later, it will detect this and skip the heavy
+`bin/init` step. To force a clean re-initialization, delete that file and run
+`bin/reset`.
 
 > **Linux:** the double-click flow is not packaged yet. Follow
 > [`MANUAL_SETUP.md`](MANUAL_SETUP.md) instead.
@@ -64,6 +71,10 @@ When the guided setup finishes, chutvrc is available at
 
 ## Daily usage
 
+After the one-time setup is finished, you do **not** need to run the setup
+script again. To start chutvrc on subsequent days, just bring the services
+up:
+
 | Action  | Command                                       |
 | ------- | --------------------------------------------- |
 | Start   | `bin/up`                                      |
@@ -71,13 +82,105 @@ When the guided setup finishes, chutvrc is available at
 | Restart | `bin/down && mutagen daemon stop && bin/up`   |
 | Reset   | `bin/reset` (recreates containers and images) |
 
+### Double-click start (optional)
+
+If you'd rather not open a terminal each time, use the start script for your
+platform — it just runs `bin/up` after a quick sanity check:
+
+- **macOS:** double-click `start-mac.command`
+- **Windows:** double-click `start-windows.bat`
+- **Linux:** run `./start-linux.sh` from a terminal, or double-click it in
+  your file manager if your desktop environment is configured to execute
+  shell scripts on double-click (most ask whether to _Run_ or _Open in
+  editor_ the first time).
+
+These are **start-only** scripts. Do not confuse them with
+`local-setup-mac.command` / `local-setup-windows.bat`, which run the full
+one-time setup (cloning repos, building images, generating certificates,
+etc.) and should not be repeated daily. On Linux there is no setup script —
+follow [`MANUAL_SETUP.md`](MANUAL_SETUP.md) for the one-time setup, then use
+`start-linux.sh` for daily start.
+
+Make sure Docker is running before launching them (Docker Desktop on
+macOS / Windows, or `sudo systemctl start docker` on Linux with Docker
+Engine).
+
+### Code edits
+
 Code edits in `services/*` are picked up automatically by Mutagen while the
-containers are running.
+containers are running, so most day-to-day development does not require
+restarting anything.
 
 > **Known issue:** After restarting with `bin/down` and `bin/up`, Hubs may
 > fail to connect to Dialog (port 4443). Fully **quit** Docker Desktop and
 > start it again (a "Restart" from the Docker Desktop menu is not enough),
 > then run `bin/up`.
+
+---
+
+## Customizing components
+
+Each chutvrc service lives under `services/` as an **independent git
+repository** that the setup script cloned for you:
+
+| Folder               | Upstream                                                 |
+| -------------------- | -------------------------------------------------------- |
+| `services/reticulum` | https://github.com/pf-hubs/chutvrc-reticulum             |
+| `services/dialog`    | https://github.com/pf-hubs/chutvrc-dialog                |
+| `services/hubs`      | https://github.com/pf-hubs/chutvrc-hubs (client + admin) |
+| `services/spoke`     | https://github.com/pf-hubs/chutvrc-spoke                 |
+
+Because each one is a real git checkout, you can develop in it the same way
+you would any other repository.
+
+### Working on a component
+
+1. `cd` into the component you want to change, e.g. `cd services/hubs`.
+2. Inspect the current branch — `git status`. The setup checks out the
+   `main` branch by default.
+3. Create your own branch off it:
+   ```bash
+   git checkout -b my-feature
+   ```
+4. Edit the code. Mutagen syncs the changes into the running container, so
+   most edits take effect without restarting (the Hubs client and Spoke do
+   hot module replacement; Reticulum and Dialog restart on file changes).
+5. Commit on your branch as usual.
+
+### Recommended: fork your own repository
+
+If you plan to keep your changes long-term, fork the relevant
+`pf-hubs/chutvrc-*` repository to your own GitHub account / organization and
+push your branch there:
+
+```bash
+cd services/hubs
+git remote rename origin upstream
+git remote add origin https://github.com/<your-account>/<your-fork>.git
+git push -u origin my-feature
+```
+
+This keeps `upstream` pointing at `pf-hubs` so you can still pull in updates
+(`git fetch upstream && git merge upstream/main`),
+while `origin` points at your own fork for pushing.
+
+### Pointing the setup script at your fork (optional)
+
+By default, `bin/init` clones each service from `pf-hubs/chutvrc-*`. If you
+want a fresh setup (on another machine, or for a teammate) to clone **your
+fork** instead, you have two options:
+
+- **Edit `bin/init`** — change the `clone_or_skip` lines (around lines 23–26)
+  to use your fork URL and your branch name. The cloning is idempotent, so
+  it's safe to re-run.
+- **Pre-clone manually** — before running the setup script, clone your fork
+  into the matching `services/<name>` directory yourself. `bin/init` skips
+  any service that already has a `.git` folder, so it will leave your
+  pre-cloned copy alone.
+
+Whether or not to commit the edited `bin/init` to your own fork of
+`hubs-compose` is up to you. If you commit it, anyone who clones your
+`hubs-compose` fork will get your service forks automatically.
 
 ---
 
@@ -111,8 +214,8 @@ The University of Tokyo.
 You can support this development through the GitHub Sponsor button, which is
 linked to the [UTokyo Foundation](https://utf.u-tokyo.ac.jp/en). If you want
 to support this project specifically, write in the donation purpose:
-*"For Virtual Reality Educational Research Center, chutvrc related
-research/educational purpose."*
+_"For Virtual Reality Educational Research Center, chutvrc related
+research/educational purpose."_
 
 > Please be aware that 30% of the donation amount is used by the university
 > administration office regardless of the stated purpose.
