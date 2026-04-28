@@ -1,5 +1,16 @@
 # Hubs Cloud Data Migration to Community Edition
 
+> **Legacy upstream guide.** This document was inherited from
+> [Hubs-Foundation/hubs-compose](https://github.com/Hubs-Foundation/hubs-compose)
+> and targets the now-deprecated Mozilla Hubs / Hubs-Foundation services. It
+> does **not** describe the chutvrc workflow.
+>
+> If you are setting up **chutvrc**, follow [`README.md`](../README.md) and
+> [`MANUAL_SETUP.md`](../MANUAL_SETUP.md) instead. The content below is kept
+> for historical reference only.
+
+---
+
 Hey everyone, this is [@mikemorran](https://github.com/mikemorran)!
 
 I am writing this guide covering how to get started with local Hubs development using Hubs Compose. The commands shown in this guide were executed on my 2022 Macbook Pro; You may need to adjust the commands and dependencies for your operating system.

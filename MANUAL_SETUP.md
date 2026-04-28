@@ -1,35 +1,23 @@
-# chutvrc Compose — Getting Started
+# chutvrc Compose — Manual Setup
 
-chutvrc Compose is a Docker Compose setup for orchestrating all services used by
-chutvrc for local development. It runs on macOS, Linux, and Windows.
+This guide walks through configuring `chutvrc-hubs-compose` by hand. Follow it
+if:
+
+- The double-click setup scripts (`local-setup-mac.command` /
+  `local-setup-windows.bat`, see [`README.md`](README.md)) are not a fit for
+  your environment.
+- You are setting up to have your chutvrc accessible from **other devices (either within the same LAN or publicly)** —
+  the double-click scripts only cover local development within a single device.
+- You are on **Linux** (no double-click flow is provided yet).
+- You want to understand exactly what the scripts do.
 
 > **Important:** This is not a production-ready setup. It does not account for
 > security or scalability. The permissions files were generated for development
 > purposes only.
 
-> **Note (26260326):** The configuration steps here are not fully validated yet for Linux and Windows.
+> **Note (26260428):** The configuration steps here are not fully validated yet for Linux.
 
 ---
-
-## Quick Start (Recommended)
-
-For **Scenario A (Local Single-Device Development)**, use the one-click setup
-scripts that automate prerequisites installation and initial setup:
-
-- **macOS:** Double-click `local-setup-mac.command` in Finder.
-- **Windows:** Double-click `local-setup-windows.bat` in Explorer.
-
-The scripts will install dependencies, initialize services, generate SSL
-certificates, configure the hosts file, and start everything up. They then
-guide you interactively through the remaining steps — including automatically
-fetching the sign-in link and promoting your account to admin.
-
-> **Note:** If you prefer to set up manually or need a different scenario
-> (LAN or Remote Server), follow the full instructions below.
-
----
-
-# Manual Setup for chutvrc Compose
 
 ## 1. Prerequisites
 
