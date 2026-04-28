@@ -40,11 +40,12 @@ first time you set up the project. After that, use the daily commands in the
 next section.
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-   and start it.
+   (or Docker Engine on Linux) and start it.
 2. Clone this repository.
-3. Double-click the script for your platform:
-   - **macOS:** `local-setup-mac.command` (in Finder)
-   - **Windows:** `local-setup-windows.bat` (in Explorer)
+3. Run the setup script for your platform:
+   - **macOS:** double-click `local-setup-mac.command` (in Finder)
+   - **Windows:** double-click `local-setup-windows.bat` (in Explorer)
+   - **Linux:** open a terminal and run `./local-setup-linux.sh`
 
 The script installs the remaining dependencies (`mutagen`, `mutagen-compose`,
 `mkcert`), clones each service from `pf-hubs/chutvrc-*` into `services/`,
@@ -60,12 +61,15 @@ If you re-run the setup script later, it will detect this and skip the heavy
 `bin/init` step. To force a clean re-initialization, delete that file and run
 `bin/reset`.
 
-> **Linux:** the double-click flow is not packaged yet. Follow
-> [`MANUAL_SETUP.md`](MANUAL_SETUP.md) instead.
->
-> **LAN / Remote server:** the double-click flow only covers single-device
-> (Scenario A). For multi-device or public-domain hosting, follow
-> [`MANUAL_SETUP.md`](MANUAL_SETUP.md).
+> **LAN or public-domain hosting:** the setup scripts also support **LAN
+> access** (other devices on the same network reach chutvrc via your
+> machine's IP) and **public-domain hosting** (a real DNS-resolvable domain
+> on a server). Populate `.env` (see [`.env.example`](.env.example) and
+> [`MANUAL_SETUP.md`](MANUAL_SETUP.md)) **before** running the script. The
+> script reads `HUBS_HOST` from `.env` and dispatches to the right cert flow
+> (`mkcert` with the LAN IP added as a SAN, or `certbot` for a real domain).
+> Public-domain hosting is supported on macOS and Linux only — Windows users
+> should run it from WSL2 or follow `MANUAL_SETUP.md` on a Linux server.
 
 ---
 
@@ -95,11 +99,10 @@ platform — it just runs `bin/up` after a quick sanity check:
   editor_ the first time).
 
 These are **start-only** scripts. Do not confuse them with
-`local-setup-mac.command` / `local-setup-windows.bat`, which run the full
-one-time setup (cloning repos, building images, generating certificates,
-etc.) and should not be repeated daily. On Linux there is no setup script —
-follow [`MANUAL_SETUP.md`](MANUAL_SETUP.md) for the one-time setup, then use
-`start-linux.sh` for daily start.
+`local-setup-mac.command` / `local-setup-windows.bat` /
+`local-setup-linux.sh`, which run the full one-time setup (cloning repos,
+building images, generating certificates, etc.) and should not be repeated
+daily.
 
 Make sure Docker is running before launching them (Docker Desktop on
 macOS / Windows, or `sudo systemctl start docker` on Linux with Docker
@@ -187,9 +190,9 @@ Whether or not to commit the edited `bin/init` to your own fork of
 ## Other documentation
 
 - [`MANUAL_SETUP.md`](MANUAL_SETUP.md) — manual `bin/init`, certificate, and
-  scenario configuration. Covers Scenarios A (single device), B (LAN), and
-  C (remote server with a public domain). Use this if the double-click flow
-  doesn't fit your environment, or for Linux.
+  per-environment configuration. Covers single-device development, LAN
+  access, and remote-server hosting with a public domain. Use this if the
+  double-click flow doesn't fit your environment.
 - [`SSL_SETUP.md`](SSL_SETUP.md) — standalone walk-through of the
   `mkcert`-based local SSL setup (a subset of `MANUAL_SETUP.md`).
 - [`k8s/`](k8s/) — Kubernetes deployment manifests and step-by-step deploy

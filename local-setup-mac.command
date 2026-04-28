@@ -1,9 +1,12 @@
 #!/bin/bash
-# setup-mac.command — Double-click this file in Finder to set up chutvrc Compose
-# Automates prerequisites installation and initial setup for macOS (Scenario A: Local)
+# local-setup-mac.command — Double-click in Finder to set up chutvrc Compose.
+# Default flow is single-device development on hubs.local. For LAN access or
+# public-domain hosting, populate `.env` (see .env.example / MANUAL_SETUP.md)
+# *before* double-clicking — this script will detect HUBS_HOST and dispatch.
 
 set -euo pipefail
 cd "$(dirname "$0")"
+basedir="$(pwd)"
 
 BOLD='\033[1;37m'
 GREEN='\033[1;32m'
@@ -21,6 +24,21 @@ echo "============================================================"
 echo "  chutvrc Compose — macOS Setup"
 echo "============================================================"
 echo ""
+
+# Source the shared library now so we can use ask_scenario_if_unset before
+# Phase 1 starts installing things. common.sh's fail() does not exit (its
+# own functions wrap fail+return 1); restore the exit-on-fail variant so
+# the inline prereq checks below still terminate the script on missing
+# Docker / etc.
+source ./local-setup-common.sh
+fail() { echo -e "${RED}$*${RESET}"; exit 1; }
+
+# ── Pre-flight: Scenario selection ──────────────────────────────────────────
+# Skipped silently if HUBS_HOST is already set in .env. Otherwise prompts;
+# selecting LAN or public-domain prints what to add to .env and exits so
+# the user can configure it before the heavy install steps.
+load_env
+ask_scenario_if_unset
 
 # ── Phase 1: Prerequisites ──────────────────────────────────────────────────
 
@@ -76,7 +94,9 @@ echo ""
 info "Phase 2: Running setup..."
 echo ""
 
-source ./local-setup-common.sh
+# common.sh + load_env already ran in Phase 0; just dispatch on the scenario.
+detect_scenario
+echo ""
 
 ensure_docker_running
 echo ""
@@ -94,17 +114,11 @@ rebuild_dialog
 echo ""
 
 # ── Phase 3: Hosts file ────────────────────────────────────────────────────
+# configure_hosts edits /etc/hosts for single-device (hubs.local) only;
+# it's a no-op for LAN / public-domain hosts (where it isn't needed).
 
 info "Phase 3: Configuring hosts file..."
-
-if grep -q "hubs\.local" /etc/hosts 2>/dev/null; then
-    success "  /etc/hosts already contains hubs.local entries."
-else
-    warn "  Adding hubs.local entries to /etc/hosts (requires sudo)..."
-    echo "127.0.0.1   hubs.local" | sudo tee -a /etc/hosts >/dev/null
-    echo "127.0.0.1   hubs-proxy.local" | sudo tee -a /etc/hosts >/dev/null
-    success "  Hosts file updated."
-fi
+configure_hosts
 echo ""
 
 # ── Phase 4: Start services ────────────────────────────────────────────────

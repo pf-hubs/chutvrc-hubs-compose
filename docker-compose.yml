@@ -44,7 +44,7 @@ services:
       dockerfile: dockerfiles/hubs.Dockerfile
     command: npm run local
     environment:
-      INTERNAL_HOSTNAME: hubs-admin
+      INTERNAL_HOSTNAME: ${HUBS_HOST:-hubs.local}
       RETICULUM_SERVER: "${HUBS_HOST:-hubs.local}:4000"
       POSTGREST_SERVER: ""
     healthcheck:
@@ -61,7 +61,7 @@ services:
       dockerfile: dockerfiles/hubs.Dockerfile
     command: npm run local
     environment:
-      INTERNAL_HOSTNAME: hubs-client
+      INTERNAL_HOSTNAME: ${HUBS_HOST:-hubs.local}
       RETICULUM_HOST: ${HUBS_HOST:-hubs.local}
       CORS_PROXY_SERVER: "${HUBS_HOST:-hubs.local}:4000"
     healthcheck:

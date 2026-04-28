@@ -12,6 +12,81 @@ echo   chutvrc Compose - Windows Setup
 echo ============================================================
 echo.
 
+REM -- Pre-flight: Scenario selection ----------------------------------------
+REM
+REM Skip the prompt if HUBS_HOST is already set in .env (the user has
+REM pre-configured a scenario). Otherwise ask which scenario; selecting LAN
+REM or public-domain prints what to add to .env and exits, so the user
+REM doesn't waste time on the prereq install / hosts edit before they're
+REM ready.
+REM
+REM /B = beginning of line (skips commented "# HUBS_HOST=..." lines).
+REM "..*" requires at least one non-empty char (skips empty "HUBS_HOST=").
+set "HUBS_HOST_SET="
+if exist .env (
+    findstr /B /R "HUBS_HOST=..*" .env >nul 2>&1
+    if not errorlevel 1 set "HUBS_HOST_SET=1"
+)
+
+if not defined HUBS_HOST_SET (
+    echo ============================================================
+    echo   Which deployment scenario?
+    echo ============================================================
+    echo.
+    echo   1^) Local single-device development  ^(DEFAULT - press Enter^)
+    echo      Access at https://hubs.local:4000 from this machine only.
+    echo.
+    echo   2^) LAN access
+    echo      Other devices on your WiFi/LAN reach chutvrc via your machine's IP.
+    echo.
+    echo   3^) Public-domain hosting
+    echo      Access from anywhere via a real domain ^(e.g., hubs.example.com^).
+    echo.
+
+    set /p "SCENARIO_CHOICE=  Enter 1, 2, or 3 [1]: "
+    if "!SCENARIO_CHOICE!"=="" set "SCENARIO_CHOICE=1"
+    echo.
+
+    if "!SCENARIO_CHOICE!"=="1" (
+        echo   [OK] Proceeding with local single-device development.
+        echo.
+    ) else if "!SCENARIO_CHOICE!"=="2" (
+        echo   !ESC![93mLAN access selected -- needs .env configuration before continuing.!ESC![0m
+        echo.
+        echo     Step 1: Find your machine's LAN IP ^(e.g., 192.168.x.y^):
+        echo               In PowerShell:  Get-NetIPAddress -AddressFamily IPv4 ^| Where IPAddress -notlike '127.*'
+        echo               In cmd:         ipconfig
+        echo.
+        echo     Step 2: Edit .env at the repo root ^(copy from .env.example if needed^):
+        echo               HUBS_HOST=^<your-LAN-IP^>
+        echo.
+        echo     Step 3: Re-run this script.
+        echo.
+        echo   Aborting so you can configure .env. Re-run when ready.
+        echo.
+        pause
+        exit /b 0
+    ) else if "!SCENARIO_CHOICE!"=="3" (
+        echo   !ESC![93mPublic-domain hosting selected -- needs .env configuration before continuing.!ESC![0m
+        echo.
+        echo     Note: Public-domain hosting on Windows is unsupported in this script
+        echo     ^(certbot has no native Windows port^). Run from WSL2, or follow
+        echo     MANUAL_SETUP.md ^(Remote Server section^) on a Linux server.
+        echo.
+        echo     If you want to continue here anyway, edit .env with HUBS_HOST and
+        echo     PRIVATE_NETWORK_IP, then re-run -- the script will error out at the
+        echo     certbot step with a clear message.
+        echo.
+        pause
+        exit /b 0
+    ) else (
+        echo   !ESC![91m[ERROR] Invalid choice: '!SCENARIO_CHOICE!'. Re-run and enter 1, 2, or 3.!ESC![0m
+        echo.
+        pause
+        exit /b 1
+    )
+)
+
 REM -- Phase 1: Prerequisites -------------------------------------------------
 
 echo Phase 1: Checking prerequisites...
@@ -175,6 +250,25 @@ REM -- Phase 2: Hosts file ----------------------------------------------------
 
 echo Phase 2: Configuring hosts file...
 
+REM Skip the hosts edit entirely when the user has opted into LAN or
+REM public-domain hosting by setting HUBS_HOST in .env. The bash side
+REM (load_env + detect_scenario) decides cert generation. Hosts editing is
+REM only for the default single-device flow (hubs.local).
+REM
+REM Match HUBS_HOST=<at-least-one-char> at start of line. /B = beginning of
+REM line, so commented "# HUBS_HOST=..." lines do not match. The "..*"
+REM pattern (one-or-more) excludes empty "HUBS_HOST=" lines too.
+set "HUBS_HOST_SET="
+if exist .env (
+    findstr /B /R "HUBS_HOST=..*" .env >nul 2>&1
+    if not errorlevel 1 set "HUBS_HOST_SET=1"
+)
+
+if defined HUBS_HOST_SET (
+    echo   [OK] HUBS_HOST is set in .env -- skipping /etc/hosts edit (LAN / public-domain).
+    goto :hosts_done
+)
+
 REM Use "hubs-client" as a completeness marker — it was NOT in the older
 REM (hubs.local / hubs-proxy.local) versions, so its presence means the hosts
 REM file has been updated by the current version of bin\update-hosts.ps1.
@@ -239,7 +333,7 @@ set "PROJECT_DIR=!PROJECT_DIR:\=/!"
 REM Remove trailing slash
 if "!PROJECT_DIR:~-1!"=="/" set "PROJECT_DIR=!PROJECT_DIR:~0,-1!"
 
-"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && source ./local-setup-common.sh && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
+"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && basedir=\"$(pwd)\" && source ./local-setup-common.sh && load_env && detect_scenario && echo '' && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
 
 if errorlevel 1 (
     echo.

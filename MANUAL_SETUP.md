@@ -102,9 +102,16 @@ the `.env` file, set up SSL certificates, and prepare your network.
 > **Tip:** A template is provided at `.env.example`. Copy it to `.env` and
 > uncomment the relevant lines.
 
+> **Setup scripts honor these scenarios automatically.** Once `.env` is in
+> place, running `local-setup-mac.command` / `local-setup-windows.bat` /
+> `local-setup-linux.sh` performs the cert generation, hosts-file edit (or
+> skip), and start-up steps below for you. The instructions below describe
+> what those scripts do under the hood — useful when something fails or when
+> you prefer to drive each step by hand.
+
 ---
 
-#### Scenario A — Local Single-Device Development (default)
+#### Local Single-Device Development (default)
 
 Use this when developing on a single machine. Services are accessed via the
 `hubs.local` hostname.
@@ -138,7 +145,7 @@ mkcert -key-file shared-key.pem -cert-file shared-cert.pem \
 
 ---
 
-#### Scenario B — LAN Development (access from other devices on the same network)
+#### LAN Development (access from other devices on the same network)
 
 Use this when you want other devices on the same WiFi / LAN to connect to
 your Hubs instance. Instead of `hubs.local`, you use your machine's LAN IP
@@ -212,7 +219,7 @@ that device. You can either:
 
 ---
 
-#### Scenario C — Remote Server (access from any network via a domain)
+#### Remote Server (access from any network via a domain)
 
 Use this when hosting on a server with a public domain name so that devices
 from any network can access the Hubs instance.
@@ -311,7 +318,7 @@ bin/up
 ### Step 6 — Sign In
 
 1. Open the Reticulum URL in your browser (e.g., `https://hubs.local:4000` for
-   Scenario A) and click the sign-in button.
+   single-device development) and click the sign-in button.
    - If it doesn't open successfully, try again after waiting a minute, or clear your browser cache.
 2. Enter an email address (it does not have to be real). Remember this address —
    it will be used for your admin account.
