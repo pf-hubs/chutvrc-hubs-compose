@@ -140,7 +140,7 @@ you would any other repository.
 
 1. `cd` into the component you want to change, e.g. `cd services/hubs`.
 2. Inspect the current branch — `git status`. The setup checks out the
-   `main` branch by default.
+   `develop` branch by default.
 3. Create your own branch off it:
    ```bash
    git checkout -b my-feature
@@ -164,7 +164,7 @@ git push -u origin my-feature
 ```
 
 This keeps `upstream` pointing at `pf-hubs` so you can still pull in updates
-(`git fetch upstream && git merge upstream/main`),
+(`git fetch upstream && git merge upstream/develop`),
 while `origin` points at your own fork for pushing.
 
 ### Pointing the setup script at your fork (optional)
