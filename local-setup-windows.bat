@@ -223,21 +223,31 @@ if "!MUTAGEN_MISSING!"=="1" (
     echo.
     echo   !ESC![91m[ERROR] mutagen and/or mutagen-compose not found.!ESC![0m
     echo.
+    REM Detect architecture for download guidance
+    set "MUTAGEN_ARCH=amd64"
+    if /i "!PROCESSOR_ARCHITECTURE!"=="ARM64" set "MUTAGEN_ARCH=arm64"
     echo   !ESC![93mPlease install both from the official releases:!ESC![0m
     echo   !ESC![93m  Mutagen:         https://github.com/mutagen-io/mutagen/releases!ESC![0m
     echo   !ESC![93m  Mutagen Compose: https://github.com/mutagen-io/mutagen-compose/releases!ESC![0m
     echo.
+    echo   !ESC![93mFor your system ^(!PROCESSOR_ARCHITECTURE!^), download these zip files:!ESC![0m
+    echo   !ESC![93m    mutagen_windows_!MUTAGEN_ARCH!_v*.zip!ESC![0m
+    echo   !ESC![93m    mutagen-compose_windows_!MUTAGEN_ARCH!_v*.zip!ESC![0m
+    echo.
     echo   !ESC![93mInstallation steps:!ESC![0m
-    echo   !ESC![93m  1. Download the Windows zip for each from the links above!ESC![0m
+    echo   !ESC![93m  1. Download the two zip files above ^(pick the same version for both^)!ESC![0m
     echo   !ESC![93m  2. Extract mutagen.exe and mutagen-compose.exe!ESC![0m
-    echo   !ESC![93m  3. Place them in a directory that is in your PATH!ESC![0m
-    echo   !ESC![93m     ^(e.g., C:\Program Files\Mutagen\^)!ESC![0m
-    echo   !ESC![93m  4. Add that directory to your system PATH if needed!ESC![0m
+    echo   !ESC![93m  3. Place both .exe files in: %LOCALAPPDATA%\mutagen\!ESC![0m
+    echo   !ESC![93m     ^(create the "mutagen" folder if it doesn't exist^)!ESC![0m
+    echo   !ESC![93m  4. Add that folder to your user PATH:!ESC![0m
+    echo   !ESC![93m     Settings ^> "Edit environment variables for your account"!ESC![0m
+    echo   !ESC![93m     ^> select "Path" ^> Edit ^> New ^> paste:!ESC![0m
+    echo   !ESC![93m        %LOCALAPPDATA%\mutagen!ESC![0m
     echo.
     echo   !ESC![93mIMPORTANT: The Mutagen and Mutagen Compose versions must match.!ESC![0m
     echo   !ESC![93mInstall the latest of both at the same time.!ESC![0m
     echo.
-    echo   !ESC![93mAfter installing, re-run this script.!ESC![0m
+    echo   !ESC![93mAfter installing, close and reopen this terminal, then re-run this script.!ESC![0m
     goto :end
 )
 echo   [OK] mutagen and mutagen-compose installed.
@@ -252,12 +262,12 @@ echo Phase 2: Configuring hosts file...
 
 REM Skip the hosts edit entirely when the user has opted into LAN or
 REM public-domain hosting by setting HUBS_HOST in .env. The bash side
-REM (load_env + detect_scenario) decides cert generation. Hosts editing is
-REM only for the default single-device flow (hubs.local).
+REM decides cert generation. Hosts editing is only for the default
+REM single-device flow (hubs.local).
 REM
-REM Match HUBS_HOST=<at-least-one-char> at start of line. /B = beginning of
-REM line, so commented "# HUBS_HOST=..." lines do not match. The "..*"
-REM pattern (one-or-more) excludes empty "HUBS_HOST=" lines too.
+REM Match HUBS_HOST=<value> at start of line. /B = beginning of line,
+REM so commented lines do not match. The "..*" pattern excludes empty
+REM "HUBS_HOST=" lines too.
 set "HUBS_HOST_SET="
 if exist .env (
     findstr /B /R "HUBS_HOST=..*" .env >nul 2>&1
@@ -265,13 +275,13 @@ if exist .env (
 )
 
 if defined HUBS_HOST_SET (
-    echo   [OK] HUBS_HOST is set in .env -- skipping /etc/hosts edit (LAN / public-domain).
+    echo   [OK] HUBS_HOST is set in .env -- skipping /etc/hosts edit ^(LAN / public-domain^).
     goto :hosts_done
 )
 
-REM Use "hubs-client" as a completeness marker — it was NOT in the older
-REM (hubs.local / hubs-proxy.local) versions, so its presence means the hosts
-REM file has been updated by the current version of bin\update-hosts.ps1.
+REM Use "hubs-client" as a completeness marker -- it was NOT in the older
+REM versions, so its presence means the hosts file has been updated by
+REM the current version of bin\update-hosts.ps1.
 findstr /C:"hubs-client" "%WINDIR%\System32\drivers\etc\hosts" >nul 2>&1
 if not errorlevel 1 (
     echo   [OK] Hosts file already contains all hubs entries.
