@@ -1,0 +1,53 @@
+# ChutVRC evaluation overlay. Activated only with `--profile eval`.
+#
+# Usage:
+#   # Run a single measurement cell (5-minute default duration):
+#   docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
+#     run --rm --service-ports eval-runner runner start \
+#       --label "laptop+dialog+real-devices-only" \
+#       --room https://hubs.local/<room-sid> \
+#       --duration 5m \
+#       --dialog-url http://dialog:7001 \
+#       --host-stats docker \
+#       --public-url wss://${EVAL_REPORT_HOST:-hubs.local}:9099
+#
+# When `--profile eval` is absent, nothing here runs and the default chutvrc
+# behavior is unchanged.
+#
+# Set EVAL_REPORT_HOST in .env to the runner's LAN-reachable hostname/IP if
+# you intend to join from phones/tablets/HMDs on the same network.
+version: "3.9"
+services:
+  eval-runner:
+    profiles: ["eval"]
+    build:
+      context: ./eval/runner
+      dockerfile: Dockerfile
+    image: chutvrc-eval-runner:latest
+    environment:
+      EVAL_REPORT_HOST: ${EVAL_REPORT_HOST:-hubs.local}
+    ports:
+      - "9099:9099"
+    volumes:
+      - ./eval/results:/results
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    working_dir: /results
+    # `run --rm` for one-shot evaluations; `up -d` is not the intended mode.
+    command: ["--help"]
+
+  # Optional: cAdvisor for richer container metrics. The runner can read the
+  # Docker socket directly, so cAdvisor is only useful if you want a
+  # Prometheus-format scrape source. Leave commented unless needed.
+  cadvisor:
+    profiles: ["eval"]
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    command:
+      - "--port=8080"
+      - "--housekeeping_interval=1s"

@@ -1,0 +1,57 @@
+# One-shot run as a k8s Job. Operator copies this template, fills in the
+# EVAL_LABEL / EVAL_ROOM_URL / EVAL_DURATION, kubectl applies it, then
+# fetches results from the runner pod via `kubectl cp`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: chutvrc-eval-
+  namespace: chutvrc
+  labels:
+    app: chutvrc-eval-runner
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: chutvrc-eval-runner
+    spec:
+      restartPolicy: Never
+      serviceAccountName: chutvrc-eval-runner
+      containers:
+        - name: runner
+          image: chutvrc-eval-runner:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "start"
+            - "--label"
+            - "REPLACE_ME_LABEL"
+            - "--room"
+            - "https://hub.example.com/REPLACE_ME_SID"
+            - "--duration"
+            - "300s"
+            - "--dialog-url"
+            - "http://dialog:7001"
+            - "--host-stats"
+            - "k8s"
+            - "--k8s-nodes"
+            - ""
+            - "--public-url"
+            - "wss://eval.REPLACE_ME_DOMAIN"
+            - "--out"
+            - "/results"
+          ports:
+            - containerPort: 9099
+              name: ws
+          volumeMounts:
+            - name: results
+              mountPath: /results
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+      volumes:
+        - name: results
+          emptyDir: {}

@@ -1,0 +1,30 @@
+# Optional ingress route so real devices on the public internet can reach
+# the runner's WebSocket. Requires the same HAProxy/Ingress controller
+# already in use for the chutvrc deployment (see k8s/templates/hcce-chutvrc.yam).
+#
+# Replace eval.REPLACE_ME_DOMAIN and the tls secretName as appropriate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chutvrc-eval-runner
+  namespace: chutvrc
+  annotations:
+    haproxy.org/timeout-tunnel: "30m"
+    haproxy.org/server-ssl: "false"
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - eval.REPLACE_ME_DOMAIN
+      secretName: eval-tls
+  rules:
+    - host: eval.REPLACE_ME_DOMAIN
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chutvrc-eval-runner
+                port:
+                  number: 9099

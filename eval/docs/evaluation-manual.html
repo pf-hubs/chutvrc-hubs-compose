@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chutvrc Evaluation Manual</title>
+<style>
+  :root {
+    --ink: #1d1d1f;
+    --muted: #555;
+    --rule: #d9d9dc;
+    --accent: #1d4ed8;
+    --warn: #b45309;
+    --code-bg: #f5f5f7;
+    --kbd-bg: #e8e8ec;
+  }
+  * { box-sizing: border-box; }
+  html { font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: var(--ink); }
+  body { margin: 0; }
+  .layout { display: grid; grid-template-columns: 240px 1fr; max-width: 1200px; margin: 0 auto; }
+  nav.toc {
+    position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 24px 16px; border-right: 1px solid var(--rule); font-size: 14px;
+  }
+  nav.toc h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; }
+  nav.toc ol ol { margin-left: 12px; font-size: 13px; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc a { color: var(--ink); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+  main { padding: 32px 36px 80px; max-width: 880px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 22px; margin: 36px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+  h3 { font-size: 17px; margin: 22px 0 6px; }
+  h4 { font-size: 15px; margin: 16px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  p, ul, ol, table { margin: 8px 0 12px; }
+  ul ul, ol ol, ul ol, ol ul { margin: 4px 0; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13.5px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: inherit; background: var(--kbd-bg); border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: #fafafb; font-weight: 600; }
+  .lead { font-size: 17px; color: var(--muted); margin: 4px 0 16px; }
+  .meta { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li { padding: 4px 0 4px 28px; position: relative; }
+  .checklist li::before {
+    content: ""; position: absolute; left: 0; top: 9px; width: 16px; height: 16px;
+    border: 1.5px solid var(--ink); border-radius: 3px; background: white;
+  }
+  .callout {
+    border-left: 4px solid var(--accent); background: #f0f4ff; padding: 10px 14px;
+    margin: 12px 0; font-size: 14.5px; border-radius: 0 4px 4px 0;
+  }
+  .callout.warn { border-left-color: var(--warn); background: #fff7ed; }
+  .callout strong { display: block; margin-bottom: 4px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step-num {
+    flex: 0 0 32px; height: 32px; border-radius: 50%; background: var(--ink); color: white;
+    display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;
+  }
+  .step-body { flex: 1; }
+  .step-body h3 { margin: 4px 0 6px; }
+  .matrix-row { display: grid; grid-template-columns: 80px 1fr 1fr 60px 90px 90px; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--rule); font-size: 13.5px; }
+  .matrix-row.header { font-weight: 600; border-bottom: 1.5px solid var(--ink); }
+  .verify-block {
+    background: #f5f5f7; padding: 12px 16px; border-radius: 6px; margin: 12px 0;
+    font-size: 14px;
+  }
+  .verify-block h4 { margin-top: 0; color: var(--ink); }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 30px 0; }
+  @media print {
+    nav.toc { display: none; }
+    .layout { display: block; }
+    main { max-width: none; padding: 16px; }
+    pre, .callout, .verify-block { break-inside: avoid; }
+    h2 { break-before: page; }
+    h2:first-of-type { break-before: auto; }
+  }
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--rule); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+<h2>Contents</h2>
+<ol>
+  <li><a href="#overview">1. Overview</a></li>
+  <li><a href="#before">2. Before the evaluation</a>
+    <ol>
+      <li><a href="#before-build">2.1 Build &amp; install</a></li>
+      <li><a href="#before-network">2.2 Network &amp; clocks</a></li>
+      <li><a href="#before-sfu">2.3 SFU credentials</a></li>
+      <li><a href="#before-config">2.4 Reticulum config flip</a></li>
+      <li><a href="#before-smoke">2.5 First-time smoke</a></li>
+      <li><a href="#before-plan">2.6 Plan the matrix</a></li>
+      <li><a href="#before-checklist">2.7 Pre-flight checklist</a></li>
+    </ol>
+  </li>
+  <li><a href="#during">3. During each cell</a>
+    <ol>
+      <li><a href="#during-recon">3.1 Reconfigure the cell</a></li>
+      <li><a href="#during-runner">3.2 Start the runner</a></li>
+      <li><a href="#during-speaker">3.3 Launch the speaker</a></li>
+      <li><a href="#during-listeners">3.4 Launch listener bots</a></li>
+      <li><a href="#during-devices">3.5 Bring in real devices</a></li>
+      <li><a href="#during-monitor">3.6 Monitor</a></li>
+      <li><a href="#during-validate">3.7 Validate &amp; archive</a></li>
+    </ol>
+  </li>
+  <li><a href="#matrix">4. Matrix tracker</a></li>
+  <li><a href="#trouble">5. Troubleshooting</a></li>
+  <li><a href="#after">6. After all cells</a></li>
+  <li><a href="#refs">7. Quick reference</a></li>
+</ol>
+</nav>
+
+<main>
+
+<h1>chutvrc Evaluation Manual</h1>
+<p class="lead">A step-by-step guide for who is conducting a cross-configuration performance evaluation of chutvrc.</p>
+<p class="meta">For the harness in <code>eval/</code>. Print-friendly.</p>
+
+<h2 id="overview">1. Overview</h2>
+
+<p>The eval harness is a measurement instrument, not an experiment driver. <strong>You</strong> decide which (hosting × SFU × N) cells to measure, reconfigure chutvrc manually for each, then run the runner once per cell. The runner collects timestamps from in-browser probes and writes CSVs.</p>
+
+<p>The intended sweep covers up to <strong>3 hosting environments × 4 SFU backends</strong> for cross-configuration metrics, plus a scalability run at <strong>N = 5 / 10 / 20 / 40 / 80</strong> concurrent participants. Live SFU switching is <strong>out of scope</strong> for this round.</p>
+
+<div class="callout">
+<strong>Time budget</strong>
+Each cell = 5 minutes of measurement plus ~5 minutes of setup/teardown. The full matrix (12 RQ1 cells + 5 RQ2 cells per SFU) is roughly half a day of attended work per hosting environment. Plan accordingly.
+</div>
+
+<h2 id="before">2. Before the evaluation</h2>
+
+<h3 id="before-build">2.1 Build &amp; install</h3>
+
+<p>From a clean clone of <code>chutvrc-hubs-compose</code> with the harness present:</p>
+
+<pre><code># Generate the silent carrier WAV for speaker bots (one-time).
+node eval/assets/generate-chirp.js
+
+# Build the runner image once. Rebuild only when eval/runner/ changes.
+docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml build eval-runner
+
+# Make sure the bot's Puppeteer install actually works on this host.
+cd services/hubs &amp;&amp; npm install &amp;&amp; node scripts/bot/run-bot.js --help &amp;&amp; cd -</code></pre>
+
+<p>If Puppeteer's Chromium download is blocked by your network, set <code>PUPPETEER_DOWNLOAD_HOST</code> or install Chromium separately and point Puppeteer at it. Puppeteer must succeed before any bot run.</p>
+
+<h3 id="before-network">2.2 Network &amp; clocks</h3>
+
+<ul class="checklist">
+  <li>Decide where the <strong>runner</strong> will live. It must be reachable from every measurement participant (real device or bot host) over a WebSocket. On a LAN, this is the runner host's LAN IP or mDNS name (<code>hubs.local</code>). On the public internet, behind a reverse proxy with a TLS cert.</li>
+  <li>Put that hostname/IP into <code>.env</code> as <code>EVAL_REPORT_HOST=<em>&lt;hostname-or-ip&gt;</em></code>. The compose file uses it to build the join URL.</li>
+  <li>Verify NTP/chrony is running on every host that will participate (runner, bot hosts, ideally the chutvrc server). Sub-millisecond LAN sync is normal; sub-10ms WAN sync is usually fine. The clock-sync CI in <code>run.json</code> will tell you if it was good enough.</li>
+  <li>If you'll have phones/tablets/HMDs on the LAN, ensure their browsers can reach the runner WS port (default <code>9099</code>). Open the firewall.</li>
+</ul>
+
+<h3 id="before-sfu">2.3 SFU credentials (if measuring beyond Dialog)</h3>
+
+<ul class="checklist">
+  <li>Create <code>eval/.env.local</code> (gitignored) with credentials for any non-Dialog SFU you'll measure (LiveKit API key/secret, Sora signing key, Cloudflare Realtime app ID + secret).</li>
+  <li>Plumb the same credentials into reticulum's <code>webrtc-settings</code> via the admin panel — this is where the running server actually reads them.</li>
+  <li>Confirm a manual test room with each SFU successfully connects and produces audio/video between two ordinary browsers before measurement starts. The harness measures what it sees; if a backend is misconfigured, you'll get clean-looking but meaningless data.</li>
+</ul>
+
+<div class="callout warn">
+<strong>Billing risk</strong>
+Sora and Cloudflare Realtime are billable. Sanity-check rate limits and budgets in their admin consoles before scaling to N=80. The runner enforces <code>EVAL_ALLOW_BILLING=1</code> for non-Dialog cells, but human attention is the better safeguard.
+</div>
+
+<h3 id="before-config">2.4 Reticulum config flip (one-time)</h3>
+
+<p>To change a room's SFU at runtime, reticulum's <code>webrtc-settings|allow_switch_sfu</code> must be <code>true</code>. If it's currently <code>false</code> in your deployment, flip it once in the admin panel (<code>https://&lt;admin-host&gt;:8989/admin.html</code>) at the start of the eval and revert at the end. No code change required.</p>
+
+<h3 id="before-smoke">2.5 First-time smoke (do this once on your laptop)</h3>
+
+<p>Verify the entire pipe end-to-end before committing to a real cell.</p>
+
+<div class="step"><div class="step-num">1</div><div class="step-body">
+<h3>Start the runner in a throwaway window</h3>
+<pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
+  run --rm --service-ports eval-runner runner start \
+    --label smoke \
+    --room https://hubs.local/<em>&lt;any-test-room-sid&gt;</em> \
+    --duration 90s \
+    --dialog-url http://dialog:7001 \
+    --host-stats docker \
+    --public-url wss://${EVAL_REPORT_HOST:-hubs.local}:9099</code></pre>
+<p>The runner prints a join URL with the eval probe params.</p>
+</div></div>
+
+<div class="step"><div class="step-num">2</div><div class="step-body">
+<h3>Open the printed URL in your laptop browser</h3>
+<p>Add <code>&amp;label=laptop-self</code>. Open the DevTools console. Within ~10 seconds you should see:</p>
+<pre><code>[eval] probe enabled mode=passive label=laptop-self report=wss://…
+[eval] clock synced offset=…ms ±…ms</code></pre>
+<p>If the clock-sync line never appears, the WebSocket isn't reaching the runner (firewall, wrong hostname, missing TLS). Fix this before going further.</p>
+</div></div>
+
+<div class="step"><div class="step-num">3</div><div class="step-body">
+<h3>Wait for runner exit, then check the CSVs</h3>
+<p>After 90 s the runner prints <code>[runner] aggregator wrote CSVs to …</code>. In that directory:</p>
+<ul>
+  <li><code>run.json</code> should list one client with a <code>clock_ci_ms</code> &lt; 5.</li>
+  <li><code>probe-events.csv</code> should have <code>rtc-stats</code> rows (your laptop's PC stats).</li>
+  <li>Other CSVs may be empty (no peer, no chirps) — that's fine for a self-only smoke.</li>
+</ul>
+</div></div>
+
+<div class="step"><div class="step-num">4</div><div class="step-body">
+<h3>Two-client smoke with a speaker bot</h3>
+<p>In one window run the runner (same command). In another, launch a single speaker bot pointed at the same room:</p>
+<pre><code>cd services/hubs
+EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
+EVAL_REPORT_WS_URL=wss://${EVAL_REPORT_HOST:-hubs.local}:9099 \
+node scripts/bot/run-bot.js \
+  -o ${HUBS_HOST:-hubs.local} \
+  -r <em>&lt;room-sid&gt;</em> \
+  -a ../../eval/assets/chirp-loop.wav</code></pre>
+<p>Join the same room from your laptop browser with <code>?eval=1&amp;mode=passive&amp;label=laptop-self&amp;report=…</code>. After the run, <code>chirp-pairs.csv</code> should have rows. If it doesn't, the chirp pipeline is broken — see <a href="#trouble">§5 Troubleshooting</a> before going further.</p>
+</div></div>
+
+<h3 id="before-plan">2.6 Plan the matrix</h3>
+
+<p>Decide the exact cells you'll measure before you start, including labels. A reproducible label scheme makes post-hoc aggregation trivial. Recommended:</p>
+
+<pre><code>&lt;hosting&gt;+&lt;sfu&gt;+N&lt;count&gt;[+&lt;variant&gt;]
+Examples:
+  laptop+dialog+N10
+  server+livekit+N40
+  cloud+sora+N20+devices
+  cloud+cloudflare+N80+bots-only</code></pre>
+
+<p>Fill in the matrix tracker at <a href="#matrix">§4</a> before any measurement run.</p>
+
+<h3 id="before-checklist">2.7 Pre-flight checklist (print and tick)</h3>
+
+<ul class="checklist">
+  <li><code>eval/assets/chirp-loop.wav</code> exists (run <code>node eval/assets/generate-chirp.js</code>).</li>
+  <li><code>chutvrc-eval-runner</code> Docker image builds (<code>docker compose --profile eval … build eval-runner</code>).</li>
+  <li>Bot Puppeteer install works (<code>node scripts/bot/run-bot.js --help</code> exits 0).</li>
+  <li><code>EVAL_REPORT_HOST</code> set in <code>.env</code>; reachable from every participant device.</li>
+  <li>NTP/chrony running on runner host and bot hosts.</li>
+  <li><code>webrtc-settings|allow_switch_sfu = true</code> in admin panel.</li>
+  <li>For non-Dialog SFUs: credentials in <code>eval/.env.local</code> AND admin panel; manual two-browser sanity test passed.</li>
+  <li>Self-only smoke test produced a <code>run.json</code> with clock-CI &lt; 5 ms.</li>
+  <li>Two-client smoke (speaker bot + laptop) produced a non-empty <code>chirp-pairs.csv</code>.</li>
+  <li>Matrix tracker filled in: every cell labelled, every label unique.</li>
+  <li>Sufficient bot host capacity for the largest N (~250 MB RAM per headless Chrome).</li>
+  <li>Quiet network on the runner LAN during measurement (no large concurrent transfers).</li>
+  <li>Stopwatch / timer set to 5 min for each measurement (or rely on <code>--duration</code>).</li>
+</ul>
+
+<h2 id="during">3. During each cell</h2>
+
+<p>Repeat for every cell in your matrix. Each cell takes ~10 minutes of attended time.</p>
+
+<h3 id="during-recon">3.1 Reconfigure the cell (manual)</h3>
+
+<div class="step"><div class="step-num">1</div><div class="step-body">
+<h4>Hosting</h4>
+<p>If you're switching hosting environment (laptop → server → cloud), redeploy chutvrc on the target host. Verify the deployment is healthy: a normal browser can join a normal room with mic+pose working. This is not the harness's job; trust nothing the harness reports until the underlying deployment is verified.</p>
+</div></div>
+
+<div class="step"><div class="step-num">2</div><div class="step-body">
+<h4>SFU</h4>
+<p>In the admin panel (<code>https://&lt;admin-host&gt;:8989</code>), open the target room, set the SFU field:</p>
+<ul>
+  <li><code>0</code> Dialog</li>
+  <li><code>1</code> Sora</li>
+  <li><code>2</code> LiveKit</li>
+  <li><code>3</code> Cloudflare Realtime</li>
+</ul>
+<p>Confirm by joining the room from one browser and checking the DevTools network tab for the expected SFU's WebSocket/HTTP traffic. Wrong SFU → meaningless data.</p>
+</div></div>
+
+<div class="step"><div class="step-num">3</div><div class="step-body">
+<h4>Room state reset</h4>
+<p>Kick any leftover participants from previous runs. The runner will refuse to attribute their data, but they'll skew SFU load if they linger. The admin panel has a kick action; alternatively, delete and re-create the room.</p>
+</div></div>
+
+<h3 id="during-runner">3.2 Start the runner</h3>
+
+<pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
+  run --rm --service-ports eval-runner runner start \
+    --label "<em>laptop+dialog+N40</em>" \
+    --room "https://<em>${HUBS_HOST}</em>/<em>&lt;room-sid&gt;</em>" \
+    --duration 5m \
+    --dialog-url http://dialog:7001 \
+    --host-stats docker \
+    --public-url "wss://${EVAL_REPORT_HOST}:9099"</code></pre>
+
+<p>The runner stays attached to the terminal; copy the join URL it prints. The 5-minute timer starts <em>now</em>, so move fast.</p>
+
+<div class="callout warn">
+<strong>If the runner won't start</strong>
+Almost always either port 9099 is already in use (another runner not shut down cleanly) or the EVAL profile isn't activated. <code>docker ps</code> to check, <code>docker compose --profile eval … down</code> if needed.
+</div>
+
+<h3 id="during-speaker">3.3 Launch the speaker</h3>
+
+<p>Choose <strong>one</strong> of: a designated speaker bot, or a designated real-device speaker. Never more than one — chirps from multiple sources cannot be disambiguated.</p>
+
+<h4>Option A — bot speaker</h4>
+
+<pre><code>cd services/hubs
+EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
+EVAL_REPORT_WS_URL="wss://${EVAL_REPORT_HOST}:9099" \
+node scripts/bot/run-bot.js \
+  -o "${HUBS_HOST}" \
+  -r "<em>&lt;room-sid&gt;</em>" \
+  -a ../../eval/assets/chirp-loop.wav &amp;</code></pre>
+
+<h4>Option B — real-device speaker</h4>
+
+<p>Open the runner's join URL on the designated speaker device, replacing <code>&amp;mode=passive</code> with <code>&amp;mode=speaker</code> and <code>&amp;label=&lt;device&gt;</code> with a unique speaker tag (e.g., <code>&amp;label=speaker-laptop</code>). Click anywhere on the page once to unlock audio playback (mobile autoplay policy).</p>
+
+<h3 id="during-listeners">3.4 Launch listener bots (only if your N exceeds your real-device count)</h3>
+
+<pre><code>cd services/hubs
+# Adjust the count to reach your target N.
+for i in $(seq 1 <em>39</em>); do
+  EVAL_MODE=1 EVAL_LABEL="bot-listener-$i" \
+  EVAL_REPORT_WS_URL="wss://${EVAL_REPORT_HOST}:9099" \
+  node scripts/bot/run-bot.js \
+    -o "${HUBS_HOST}" \
+    -r "<em>&lt;room-sid&gt;</em>" \
+    -a ../../eval/assets/chirp-loop.wav &amp;
+done</code></pre>
+
+<p>Wait ~30 s for all bots to fully join. The runner logs <code>[runner] hello client_id=… label=bot-listener-N</code> for each one. If you see fewer hellos than bots you launched, some failed — check the bot terminal output.</p>
+
+<div class="callout">
+<strong>Multi-host bot distribution</strong>
+At N≥40 you'll likely run out of RAM on one box. SSH the same loop to a second host with the same env vars. The runner correlates them by <code>client_id</code> + <code>label</code>; nothing else changes.
+</div>
+
+<h3 id="during-devices">3.5 Bring in real devices</h3>
+
+<p>For each device:</p>
+<ol>
+  <li>Scan the QR / open the runner's join URL.</li>
+  <li>Edit the URL bar: replace <code>&amp;label=&lt;device&gt;</code> with a unique tag, e.g. <code>quest3-haru</code>, <code>ipad-2-tabA</code>, <code>macbook-3-tabB</code>. Each tab gets a different label.</li>
+  <li>Click once on the page to unlock audio.</li>
+  <li>Confirm in the device's browser console (or the runner's terminal) that the probe shows <code>[eval] clock synced</code>.</li>
+</ol>
+
+<h3 id="during-monitor">3.6 Monitor the run</h3>
+
+<p>For the full duration, watch:</p>
+<ul>
+  <li><strong>Runner terminal</strong> — every connect/disconnect should be expected. Disconnects mid-run usually mean a bot ran out of memory.</li>
+  <li><strong>One representative listener device console</strong> — should keep emitting <code>[eval] clock re-validated</code> roughly every 30 s, no error spam.</li>
+  <li><strong>chutvrc deployment health</strong> — dialog/reticulum containers should not be OOM-killed or restarting. <code>docker stats</code> or <code>kubectl top pods</code>.</li>
+</ul>
+
+<p>Do <strong>not</strong> tweak chutvrc, the network, or other clients during the run. A reconfiguration mid-cell invalidates the cell. Mark down anything unusual that happens for your notes.</p>
+
+<h3 id="during-validate">3.7 Validate &amp; archive</h3>
+
+<p>When the runner exits, immediately check the produced <code>eval/results/&lt;run_id&gt;/</code>:</p>
+
+<div class="verify-block">
+<h4>Per-cell validation (do this before starting the next cell)</h4>
+<ul class="checklist">
+  <li><code>run.json</code> exists. Open it. <code>clients</code> array length equals (speakers + listeners + real devices). If any are missing, that participant's data never reached the runner.</li>
+  <li>Every entry in <code>run.json</code>'s <code>clients</code> has <code>clock_ci_ms</code> &lt; 5. Cells with worse CIs may be discarded.</li>
+  <li>No entry has a non-empty <code>warnings</code> array. The most likely warning is "more than one mode=speaker" — if you see it, the cell is contaminated; re-run.</li>
+  <li><code>pose-pairs.csv</code> line count is roughly N × (N−1) × 4 × 67 × duration_sec × sample_rate. For a 5-min N=10 dialog cell at sample_rate=1, expect ~720,000 rows. Order-of-magnitude is fine.</li>
+  <li><code>chirp-pairs.csv</code> has roughly (number of listeners) × (duration_sec / 1.5) rows. Below 50% of expected means some listeners weren't hearing the speaker — investigate before trusting the cell.</li>
+  <li><code>host.csv</code> has rows for at least <code>dialog</code> and <code>reticulum</code> containers (or your equivalent). If empty, <code>--host-stats</code> was wrong.</li>
+</ul>
+</div>
+
+<p>Rename the result directory if useful (default name is <code>&lt;ISO-timestamp&gt;_&lt;label&gt;</code>, which is already self-describing). Copy or move it to your archival location — these CSVs are the primary source data for whatever analysis or report you produce from this run.</p>
+
+<p>Update the matrix tracker (§4) with the run_id, CI, and any notes.</p>
+
+<h2 id="matrix">4. Matrix tracker</h2>
+
+<p>Fill before measurement; check off as cells complete. Reproduce this table in a notebook or spreadsheet — these are the cells you committed to before any data collection began.</p>
+
+<div class="matrix-row header">
+  <div>Done</div><div>Label</div><div>Cell (hosting + SFU + N)</div><div>Speaker</div><div>Clock CI</div><div>run_id</div>
+</div>
+
+<!-- The table below is a placeholder pattern. Duplicate rows as needed. -->
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N5</div><div>laptop / Dialog / 5</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N10</div><div>laptop / Dialog / 10</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N20</div><div>laptop / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N40</div><div>laptop / Dialog / 40</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N80</div><div>laptop / Dialog / 80</div><div>bot</div><div>___ ms</div><div>______</div></div>
+
+<div class="matrix-row"><div>☐</div><div>server+dialog+N20</div><div>on-prem server / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+livekit+N20</div><div>on-prem server / LiveKit / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+sora+N20</div><div>on-prem server / Sora / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+cloudflare+N20</div><div>on-prem server / Cloudflare / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+
+<div class="matrix-row"><div>☐</div><div>cloud+dialog+N20</div><div>cloud VM / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+livekit+N20</div><div>cloud VM / LiveKit / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+sora+N20</div><div>cloud VM / Sora / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+cloudflare+N20</div><div>cloud VM / Cloudflare / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+
+<p style="font-size: 13.5px; color: var(--muted); margin-top: 12px;">Add cells with real devices (suffix <code>+devices</code>) at whatever N your device collection supports. These don't need to be in the formal matrix but are valuable for capturing realistic per-device behavior.</p>
+
+<h2 id="trouble">5. Troubleshooting</h2>
+
+<h3>Probe never logs "clock synced"</h3>
+<p>The probe loaded but can't talk to the runner. In order of likelihood:</p>
+<ul>
+  <li>Wrong <code>&amp;report=</code> URL in the join URL. Compare against what the runner printed.</li>
+  <li>Mixed-content blocking: a <code>wss://</code> page can connect to <code>wss://</code> runner, but an <code>http://</code> page cannot connect to <code>ws://</code> in many browsers. Either everything is TLS or nothing is.</li>
+  <li>Firewall blocking port 9099 on the runner host.</li>
+  <li>If using k8s ingress: certificate not trusted, or websocket-tunnel timeout too short (haproxy default is 60s; set <code>haproxy.org/timeout-tunnel: "30m"</code>).</li>
+</ul>
+
+<h3>chirp-pairs.csv is empty or sparse</h3>
+<ul>
+  <li>No speaker connected, or the speaker died. Check <code>run.json</code> for a client with <code>mode: "speaker"</code>.</li>
+  <li>Speaker bot ran without <code>EVAL_SPEAKER=1</code> — it defaulted to passive and emitted no chirps.</li>
+  <li>Mobile-device speaker without a click-to-unlock-audio gesture. <code>mode=speaker</code> is rarely the right choice for phones/tablets — use bot speakers instead.</li>
+  <li>Goertzel false-negative due to codec degradation. Verify by listening: have a human join the room and confirm they hear the periodic 1 kHz blips from the speaker.</li>
+</ul>
+
+<h3>pose-pairs.csv has far fewer rows than expected</h3>
+<ul>
+  <li>You used <code>?sample=&lt;x&gt;</code> on listener URLs and forgot to multiply expectations by <code>x</code>.</li>
+  <li>Bots died mid-run. Check bot terminals for <code>process.exit</code>, OOM, or "Detected avatar dog-pile" — the last should be <code>continuing</code> in EVAL_MODE; if it's <code>Restarting</code>, the bot wasn't launched with <code>EVAL_MODE=1</code>.</li>
+  <li>Receive-side sampling is on. The probe defaults to <code>sample=1.0</code> (100%). At N ≥ 40 some operators set <code>sample=0.1</code> to reduce WS bandwidth.</li>
+</ul>
+
+<h3>clock_ci_ms is large (&gt; 5)</h3>
+<ul>
+  <li>Run a quick LAN ping to the runner host. If RTT itself is &gt; 5 ms, latency-level accuracy is what you have.</li>
+  <li>WiFi vs Ethernet: if the runner is on WiFi, move it to Ethernet for the eval.</li>
+  <li>Background network load on the runner host — pause syncs, large downloads, screen-shares.</li>
+</ul>
+
+<h3>Runner immediately exits with "EADDRINUSE"</h3>
+<p>Port 9099 already taken. <code>lsof -i :9099</code> (mac/linux) or <code>netstat -ano | findstr 9099</code> (Windows) to find the holder, kill it, or pass <code>--port 9100</code> (also update <code>EVAL_REPORT_HOST</code>-derived URLs).</p>
+
+<h3>rtc-stats.csv is missing fields for LiveKit / Sora</h3>
+<p>The probe reaches into adapter internals (<code>_sendTransport</code>, <code>room.engine.publisher.pc</code>, etc.) via known field names. If the upstream adapter changed shape, the PeerConnection list comes back empty. Open <code>services/hubs/src/eval/rtc-stats.ts</code>, function <code>extractPeerConnections</code>, and adjust the field paths to match the current adapter. All other metrics keep working.</p>
+
+<h2 id="after">6. After all cells</h2>
+
+<ul class="checklist">
+  <li>Revert the <code>webrtc-settings|allow_switch_sfu</code> flip in the admin panel if your production deployment requires it.</li>
+  <li>Stop and remove any leftover bot processes and runner containers (<code>docker compose --profile eval … down</code>; <code>pkill -f run-bot.js</code>).</li>
+  <li>Archive the entire <code>eval/results/</code> directory to long-term storage. The CSVs are the primary source data behind any number you'll report; treat them as such.</li>
+  <li>For each figure or summary you produce, fill in the corresponding row of <code>eval/docs/figures-to-commands.md</code> with the run_id and exact CLI used.</li>
+  <li>Run the aggregation snippet in <code>eval/docs/interpreting-results.md</code> over all <code>run.json</code>s to produce the per-cell summary table.</li>
+  <li>Generate plots from the CSVs using your preferred tool (matplotlib, R, ggplot, Excel).</li>
+</ul>
+
+<h2 id="refs">7. Quick reference</h2>
+
+<h4>Probe URL parameters</h4>
+<table>
+  <tr><th>Param</th><th>Values</th><th>Notes</th></tr>
+  <tr><td><code>eval</code></td><td><code>1</code></td><td>Required to load the probe at all.</td></tr>
+  <tr><td><code>mode</code></td><td><code>passive</code> (default) / <code>speaker</code></td><td>Exactly one client per run should be speaker.</td></tr>
+  <tr><td><code>label</code></td><td>any unique string</td><td>Used to slice results by device/role.</td></tr>
+  <tr><td><code>report</code></td><td><code>wss://host:port</code></td><td>Where to ship measurements. Must be reachable from this device.</td></tr>
+  <tr><td><code>sample</code></td><td><code>0&lt;x≤1</code> (default <code>1</code>)</td><td>Receive-side sampling rate; send events always 100%.</td></tr>
+  <tr><td><code>hub_id</code></td><td>hub sid</td><td>Optional override if the probe can't infer it from APP.</td></tr>
+</table>
+
+<h4>Bot env vars</h4>
+<table>
+  <tr><th>Var</th><th>Effect</th></tr>
+  <tr><td><code>EVAL_MODE=1</code></td><td>Activates everything below; also adds Puppeteer autoplay flags &amp; skips dog-pile exit.</td></tr>
+  <tr><td><code>EVAL_LABEL=<em>tag</em></code></td><td>The label shipped in the hello message.</td></tr>
+  <tr><td><code>EVAL_SPEAKER=1</code></td><td>Probe loads with <code>mode=speaker</code>.</td></tr>
+  <tr><td><code>EVAL_REPORT_WS_URL=<em>wss://…</em></code></td><td>Runner endpoint.</td></tr>
+  <tr><td><code>EVAL_SAMPLE_RATE=<em>0.1</em></code></td><td>Receive-side sampling rate (rarely needed for bots).</td></tr>
+</table>
+
+<h4>Runner CLI</h4>
+<table>
+  <tr><th>Flag</th><th>Required</th><th>Default</th></tr>
+  <tr><td><code>--label</code></td><td>yes</td><td>—</td></tr>
+  <tr><td><code>--room</code></td><td>yes</td><td>—</td></tr>
+  <tr><td><code>--duration</code></td><td>no</td><td><code>300s</code> (also accepts <code>5m</code>, <code>1h</code>)</td></tr>
+  <tr><td><code>--port</code></td><td>no</td><td><code>9099</code></td></tr>
+  <tr><td><code>--out</code></td><td>no</td><td><code>results/</code></td></tr>
+  <tr><td><code>--dialog-url</code></td><td>no</td><td>none (skip dialog polling)</td></tr>
+  <tr><td><code>--host-stats</code></td><td>no</td><td><code>docker</code> (alternatives: <code>k8s</code>, <code>off</code>)</td></tr>
+  <tr><td><code>--container-filter</code></td><td>no</td><td><code>dialog,reticulum,hubs-client,coturn,db,postgrest</code></td></tr>
+  <tr><td><code>--public-url</code></td><td>no</td><td>derived from <code>EVAL_REPORT_HOST</code></td></tr>
+  <tr><td><code>--k8s-nodes</code></td><td>no</td><td>none (k8s mode only)</td></tr>
+</table>
+
+<h4>SFU codes (Hub.sfu field in reticulum)</h4>
+<table>
+  <tr><th>Value</th><th>Backend</th></tr>
+  <tr><td><code>0</code></td><td>Dialog (mediasoup, bundled)</td></tr>
+  <tr><td><code>1</code></td><td>Sora</td></tr>
+  <tr><td><code>2</code></td><td>LiveKit</td></tr>
+  <tr><td><code>3</code></td><td>Cloudflare Realtime</td></tr>
+</table>
+
+<h4>Output files (per run)</h4>
+<table>
+  <tr><th>File</th><th>Used for</th></tr>
+  <tr><td><code>run.json</code></td><td>Manifest, per-client clock CI, warnings.</td></tr>
+  <tr><td><code>probe-events.csv</code></td><td>Every probe event raw (debug).</td></tr>
+  <tr><td><code>pose-pairs.csv</code></td><td>Avatar-pose latency (primary RQ1/RQ2 source).</td></tr>
+  <tr><td><code>chirp-pairs.csv</code></td><td>Audio latency.</td></tr>
+  <tr><td><code>audio-avatar-offset.csv</code></td><td>Audio↔avatar offset.</td></tr>
+  <tr><td><code>rtc-stats.csv</code></td><td>Jitter, RTT, loss, bitrate per stream.</td></tr>
+  <tr><td><code>dialog.csv</code></td><td>Dialog server capacity over time.</td></tr>
+  <tr><td><code>host.csv</code></td><td>Container CPU/memory/network.</td></tr>
+</table>
+
+<hr>
+<p class="meta">For the harness API surface and CSV column legend see <code>eval/docs/README.md</code> and <code>eval/docs/interpreting-results.md</code>.</p>
+
+</main>
+</div>
+</body>
+</html>

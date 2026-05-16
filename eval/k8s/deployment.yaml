@@ -1,0 +1,70 @@
+# Long-lived runner Deployment for clusters where the operator wants to leave
+# the WS endpoint up across many short runs. For one-shot runs, prefer the
+# Job manifest in this directory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chutvrc-eval-runner
+  namespace: chutvrc
+  labels:
+    app: chutvrc-eval-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chutvrc-eval-runner
+  template:
+    metadata:
+      labels:
+        app: chutvrc-eval-runner
+    spec:
+      serviceAccountName: chutvrc-eval-runner
+      containers:
+        - name: runner
+          image: chutvrc-eval-runner:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "start"
+            - "--label"
+            - "$(EVAL_LABEL)"
+            - "--room"
+            - "$(EVAL_ROOM_URL)"
+            - "--duration"
+            - "$(EVAL_DURATION)"
+            - "--dialog-url"
+            - "http://dialog:7001"
+            - "--host-stats"
+            - "k8s"
+            - "--k8s-nodes"
+            - "$(EVAL_K8S_NODES)"
+            - "--public-url"
+            - "$(EVAL_REPORT_PUBLIC_URL)"
+            - "--out"
+            - "/results"
+          env:
+            - name: EVAL_LABEL
+              value: "k8s-run"
+            - name: EVAL_ROOM_URL
+              value: ""
+            - name: EVAL_DURATION
+              value: "300s"
+            - name: EVAL_K8S_NODES
+              value: ""
+            - name: EVAL_REPORT_PUBLIC_URL
+              value: ""
+          ports:
+            - containerPort: 9099
+              name: ws
+          volumeMounts:
+            - name: results
+              mountPath: /results
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+      volumes:
+        - name: results
+          emptyDir: {}

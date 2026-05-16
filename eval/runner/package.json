@@ -1,0 +1,22 @@
+{
+  "name": "chutvrc-eval-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChutVRC evaluation harness runner (WS sink + stats poller + CSV aggregator).",
+  "license": "MIT",
+  "bin": {
+    "runner": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.4.0"
+  }
+}

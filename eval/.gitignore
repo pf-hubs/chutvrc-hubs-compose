@@ -1,0 +1,6 @@
+results/*
+!results/.gitkeep
+.env.local
+runner/node_modules/
+runner/dist/
+assets/*.wav

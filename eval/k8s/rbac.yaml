@@ -1,0 +1,29 @@
+# RBAC for the eval-runner to read kubelet cAdvisor metrics.
+# Apply once per cluster (or per namespace if using a custom role binding scope).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chutvrc-eval-runner
+  namespace: chutvrc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chutvrc-eval-runner-node-metrics
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/proxy", "nodes/metrics", "nodes/stats"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chutvrc-eval-runner-node-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chutvrc-eval-runner-node-metrics
+subjects:
+  - kind: ServiceAccount
+    name: chutvrc-eval-runner
+    namespace: chutvrc
