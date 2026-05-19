@@ -14,5 +14,5 @@ COPY package.json ./
 RUN chmod +x dist/cli.js || true
 ENV NODE_ENV=production
 EXPOSE 9099
-ENTRYPOINT ["node", "dist/cli.js"]
+ENTRYPOINT ["node", "/app/dist/cli.js"]
 CMD ["--help"]

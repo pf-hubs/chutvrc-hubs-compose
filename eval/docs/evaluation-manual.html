@@ -70,6 +70,13 @@
     font-size: 14px;
   }
   .verify-block h4 { margin-top: 0; color: var(--ink); }
+  .runs-on {
+    display: inline-block; font-size: 12px; background: #eef2ff; color: var(--accent);
+    padding: 2px 8px; border-radius: 3px; margin: 6px 0 4px;
+    font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  }
+  .runs-on.bot { background: #fef3c7; color: #92400e; }
+  .runs-on.any { background: #ecfdf5; color: #047857; }
   hr { border: none; border-top: 1px solid var(--rule); margin: 30px 0; }
   @media print {
     nav.toc { display: none; }
@@ -91,24 +98,28 @@
 <nav class="toc">
 <h2>Contents</h2>
 <ol>
-  <li><a href="#overview">1. Overview</a></li>
+  <li><a href="#overview">1. Overview</a>
+    <ol>
+      <li><a href="#overview-roles">1.1 Hosts, roles &amp; terminology</a></li>
+    </ol>
+  </li>
   <li><a href="#before">2. Before the evaluation</a>
     <ol>
       <li><a href="#before-build">2.1 Build &amp; install</a></li>
       <li><a href="#before-network">2.2 Network &amp; clocks</a></li>
       <li><a href="#before-sfu">2.3 SFU credentials</a></li>
-      <li><a href="#before-config">2.4 Reticulum config flip</a></li>
-      <li><a href="#before-smoke">2.5 First-time smoke</a></li>
-      <li><a href="#before-plan">2.6 Plan the matrix</a></li>
+      <li><a href="#before-smoke">2.4 First-time smoke</a></li>
+      <li><a href="#before-plan">2.5 Plan the matrix</a></li>
+      <li><a href="#before-network-choice">2.6 Network choice</a></li>
       <li><a href="#before-checklist">2.7 Pre-flight checklist</a></li>
     </ol>
   </li>
   <li><a href="#during">3. During each cell</a>
     <ol>
       <li><a href="#during-recon">3.1 Reconfigure the cell</a></li>
-      <li><a href="#during-runner">3.2 Start the runner</a></li>
+      <li><a href="#during-runner">3.2 Start the eval module</a></li>
       <li><a href="#during-speaker">3.3 Launch the speaker</a></li>
-      <li><a href="#during-listeners">3.4 Launch listener bots</a></li>
+      <li><a href="#during-listeners">3.4 Launch listener bot users</a></li>
       <li><a href="#during-devices">3.5 Bring in real devices</a></li>
       <li><a href="#during-monitor">3.6 Monitor</a></li>
       <li><a href="#during-validate">3.7 Validate &amp; archive</a></li>
@@ -118,120 +129,183 @@
   <li><a href="#trouble">5. Troubleshooting</a></li>
   <li><a href="#after">6. After all cells</a></li>
   <li><a href="#refs">7. Quick reference</a></li>
+  <li><a href="#notes">8. Notes &amp; scope decisions</a></li>
 </ol>
 </nav>
 
 <main>
 
 <h1>chutvrc Evaluation Manual</h1>
-<p class="lead">A step-by-step guide for who is conducting a cross-configuration performance evaluation of chutvrc.</p>
+<p class="lead">Step-by-step guide for conducting a cross-configuration performance evaluation of chutvrc.</p>
 <p class="meta">For the harness in <code>eval/</code>. Print-friendly.</p>
 
 <h2 id="overview">1. Overview</h2>
 
-<p>The eval harness is a measurement instrument, not an experiment driver. <strong>You</strong> decide which (hosting × SFU × N) cells to measure, reconfigure chutvrc manually for each, then run the runner once per cell. The runner collects timestamps from in-browser probes and writes CSVs.</p>
+<p>The eval harness is a measurement instrument, not an experiment driver. <strong>You</strong> choose each (hosting × SFU × N) cell, reconfigure chutvrc manually, then run the eval module once per cell. It collects timestamps from browser agents and writes CSVs.</p>
 
-<p>The intended sweep covers up to <strong>3 hosting environments × 4 SFU backends</strong> for cross-configuration metrics, plus a scalability run at <strong>N = 5 / 10 / 20 / 40 / 80</strong> concurrent participants. Live SFU switching is <strong>out of scope</strong> for this round.</p>
+<p>Intended sweep: <strong>3 hosting environments × 4 SFU backends</strong> for cross-config metrics, plus a scalability run at <strong>N = 5 / 10 / 20 / 40 / 80</strong>. Live SFU switching is <strong>out of scope</strong> this round.</p>
 
 <div class="callout">
 <strong>Time budget</strong>
-Each cell = 5 minutes of measurement plus ~5 minutes of setup/teardown. The full matrix (12 RQ1 cells + 5 RQ2 cells per SFU) is roughly half a day of attended work per hosting environment. Plan accordingly.
+Each cell = 5 min measurement + ~5 min setup/teardown. The full matrix (12 RQ1 + 5 RQ2 cells per SFU) is ~half a day of attended work per hosting environment. Plan accordingly.
 </div>
+
+<h3 id="overview-roles">1.1 Hosts, roles &amp; terminology</h3>
+
+<p>The harness involves three host roles plus an browser agent. They can collapse onto one physical machine for small evals, or split across several. Knowing which command runs where is the most common source of confusion — every command block below is tagged accordingly.</p>
+
+<table>
+  <tr><th>Term</th><th>Definition</th></tr>
+  <tr>
+    <td><strong>chutvrc server</strong></td>
+    <td>The machine (or k8s cluster) running reticulum, dialog, hubs-client, and any SFU. The system under measurement.</td>
+  </tr>
+  <tr>
+    <td><strong>Eval module host</strong></td>
+    <td>The machine that runs the <code>eval-runner</code> Docker container. The <strong>eval module</strong> is a Node process that opens a WebSocket on port 9099, receives measurement events from every browser agent, polls Dialog and Docker/k8s for server-side stats, and writes the CSVs in <code>eval/results/</code>. Its hostname/IP is set as <code>EVAL_REPORT_HOST</code> and must be reachable over WebSocket from every participant. The eval module does <em>not</em> join the chutvrc room.</td>
+  </tr>
+  <tr>
+    <td><strong>Bot user host</strong></td>
+    <td>Any machine that runs <code>node scripts/bot/run-bot.js</code>. Each invocation spawns a headless Chrome via Puppeteer that joins the chutvrc room as a real client. With <code>EVAL_MODE=1</code> the bot user's page loads the browser agent and reports to the eval module. With <code>EVAL_SPEAKER=1</code> the bot user emits chirp audio for audio-latency timing; otherwise it's a passive listener. Bot user hosts need an <code>npm install</code>ed copy of <code>services/hubs</code> and local access to the chirp WAV.</td>
+  </tr>
+  <tr>
+    <td><strong>Real device</strong></td>
+    <td>A phone, tablet, laptop, or HMD that joins through its own browser by opening the eval module's printed join URL. Real devices need no install — only network reachability to chutvrc and to the eval module.</td>
+  </tr>
+  <tr>
+    <td><strong>Participant / client</strong></td>
+    <td>Either a bot user or a real device — anything that joins the room and reports to the eval module. The eval module identifies each one by <code>client_id</code> + <code>label</code>.</td>
+  </tr>
+  <tr>
+    <td><strong>Browser agent</strong></td>
+    <td>A small JS module shipped inside chutvrc that activates only when the page is loaded with <code>?eval=1</code>. It clock-syncs with the eval module, samples pose / audio / RTC stats, and ships events over WebSocket. Both bot users (via Puppeteer) and real devices run the same browser agent code.</td>
+  </tr>
+  <tr>
+    <td><strong>Cell</strong></td>
+    <td>One (hosting × SFU × N) configuration measured in a single eval module invocation. Each cell yields one <code>eval/results/&lt;run_id&gt;/</code> directory.</td>
+  </tr>
+  <tr>
+    <td><strong>Speaker / Listener</strong></td>
+    <td>Roles a participant can play, set via the browser agent's <code>mode</code> param. Exactly one participant per cell is the <code>speaker</code> (its mic emits 1 kHz chirps used for audio-latency timing); all others are <code>passive</code> listeners.</td>
+  </tr>
+</table>
+
+<p><strong>Recommended topology.</strong> For the cleanest measurements use <em>two machines</em>:</p>
+<ul>
+  <li><strong>Machine A:</strong> chutvrc server <em>and</em> eval module host on the same box. The eval module is a passive WebSocket collector and is lightweight; co-locating it with chutvrc also lets <code>--host-stats docker</code> read container stats locally without remote-Docker auth.</li>
+  <li><strong>Machine B:</strong> bot user host — runs the speaker bot user and any listener bot users. <strong>Never run bot users on the chutvrc host.</strong> Co-located bot users (a) contend for CPU/RAM with chutvrc and corrupt <code>host.csv</code>; (b) talk to chutvrc over localhost / the Docker bridge, which is not a realistic client network path; (c) share a kernel clock with the eval module, producing artificially perfect clock-sync that biases cross-client latency arithmetic.</li>
+</ul>
+<p>Collapsing everything onto one machine works for the very first smoke test (§2.4) but should not be used for any measured cell. At N ≥ 40 you'll likely need more than one bot user host — see the §3.4 multi-host callout, and ideally dedicate one bot user host to the speaker so listener bot user CPU pressure doesn't smear chirp-emit timestamps. Real devices are never the same machine as any of the above.</p>
+
+<p><strong>Command-block tags.</strong> Every command block in this manual is tagged with the host it runs on:</p>
+<ul>
+  <li><span class="runs-on">Run on: eval module host</span> — the box that will host the eval-runner Docker container.</li>
+  <li><span class="runs-on bot">Run on: bot user host</span> — every box that will launch <code>run-bot.js</code>.</li>
+  <li><span class="runs-on any">Run on: any host</span> — one-off setup that just needs to land on disk somewhere; copy the output to where it's actually needed.</li>
+</ul>
+<p>Never run any of these commands on a real device (phone/tablet/HMD). Real devices only open URLs in a browser.</p>
 
 <h2 id="before">2. Before the evaluation</h2>
 
 <h3 id="before-build">2.1 Build &amp; install</h3>
 
-<p>From a clean clone of <code>chutvrc-hubs-compose</code> with the harness present:</p>
+<p>Each command below targets a specific host role. From a clean clone of <code>chutvrc-hubs-compose</code> with the harness present:</p>
 
-<pre><code># Generate the silent carrier WAV for speaker bots (one-time).
-node eval/assets/generate-chirp.js
+<h4>Generate the silent carrier WAV for speaker bot users (one-time)</h4>
+<div class="runs-on any">Run on: any host</div>
+<pre><code>node eval/assets/generate-chirp.js</code></pre>
+<p>Writes <code>eval/assets/chirp-loop.wav</code>. The file is needed wherever a speaker bot user runs (passed via <code>-a</code>); if your bot user host is a different machine from where you generated it, copy the WAV over or re-run the script there.</p>
 
-# Build the runner image once. Rebuild only when eval/runner/ changes.
-docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml build eval-runner
+<h4>Build the eval-runner Docker image</h4>
+<div class="runs-on">Run on: eval module host</div>
+<pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml build eval-runner</code></pre>
+<p>Build once. Rebuild only when files under <code>eval/runner/</code> change.</p>
 
-# Make sure the bot's Puppeteer install actually works on this host.
-cd services/hubs &amp;&amp; npm install &amp;&amp; node scripts/bot/run-bot.js --help &amp;&amp; cd -</code></pre>
-
-<p>If Puppeteer's Chromium download is blocked by your network, set <code>PUPPETEER_DOWNLOAD_HOST</code> or install Chromium separately and point Puppeteer at it. Puppeteer must succeed before any bot run.</p>
+<h4>Verify the bot user's Puppeteer install</h4>
+<div class="runs-on bot">Run on: every bot user host</div>
+<pre><code>cd services/hubs/scripts/bot &amp;&amp; npm install &amp;&amp; node run-bot.js --help &amp;&amp; cd -</code></pre>
+<p>Repeat on every machine that will launch <code>run-bot.js</code> (e.g. each box you split bot users across at large N). If Puppeteer's Chromium download is blocked, set <code>PUPPETEER_DOWNLOAD_HOST</code> or install Chromium separately and point Puppeteer at it. Puppeteer must succeed before any bot user run.</p>
 
 <h3 id="before-network">2.2 Network &amp; clocks</h3>
 
 <ul class="checklist">
-  <li>Decide where the <strong>runner</strong> will live. It must be reachable from every measurement participant (real device or bot host) over a WebSocket. On a LAN, this is the runner host's LAN IP or mDNS name (<code>hubs.local</code>). On the public internet, behind a reverse proxy with a TLS cert.</li>
-  <li>Put that hostname/IP into <code>.env</code> as <code>EVAL_REPORT_HOST=<em>&lt;hostname-or-ip&gt;</em></code>. The compose file uses it to build the join URL.</li>
-  <li>Verify NTP/chrony is running on every host that will participate (runner, bot hosts, ideally the chutvrc server). Sub-millisecond LAN sync is normal; sub-10ms WAN sync is usually fine. The clock-sync CI in <code>run.json</code> will tell you if it was good enough.</li>
-  <li>If you'll have phones/tablets/HMDs on the LAN, ensure their browsers can reach the runner WS port (default <code>9099</code>). Open the firewall.</li>
+  <li>Decide where the <strong>eval module</strong> lives. It must be reachable from every participant (real device or bot user host) over a WebSocket. On LAN: eval module host's LAN IP or mDNS name (<code>hubs.local</code>). On public internet: behind a reverse proxy with a TLS cert.</li>
+  <li>Set <code>EVAL_REPORT_HOST=<em>&lt;hostname-or-ip&gt;</em></code> in <code>.env</code>; the compose file uses it to build the join URL.</li>
+  <li>Verify NTP/chrony runs on every participating host (eval module, bot user hosts, ideally the chutvrc server). Sub-ms LAN sync is normal; sub-10ms WAN sync is usually fine. The clock-sync CI in <code>run.json</code> confirms whether it was good enough.</li>
+  <li>For phones/tablets/HMDs on the LAN, ensure their browsers can reach the eval module WS port (default <code>9099</code>). Open the firewall.</li>
 </ul>
 
 <h3 id="before-sfu">2.3 SFU credentials (if measuring beyond Dialog)</h3>
 
 <ul class="checklist">
-  <li>Create <code>eval/.env.local</code> (gitignored) with credentials for any non-Dialog SFU you'll measure (LiveKit API key/secret, Sora signing key, Cloudflare Realtime app ID + secret).</li>
-  <li>Plumb the same credentials into reticulum's <code>webrtc-settings</code> via the admin panel — this is where the running server actually reads them.</li>
-  <li>Confirm a manual test room with each SFU successfully connects and produces audio/video between two ordinary browsers before measurement starts. The harness measures what it sees; if a backend is misconfigured, you'll get clean-looking but meaningless data.</li>
+  <li>Create <code>eval/.env.local</code> (gitignored) with credentials for each non-Dialog SFU (LiveKit API key/secret, Sora signing key, Cloudflare Realtime app ID + secret).</li>
+  <li>Plumb the same credentials into reticulum's <code>webrtc-settings</code> via the admin panel — that's where the running server reads them.</li>
+  <li>Before measuring, confirm a manual test room with each SFU connects and produces audio/video between two ordinary browsers. The harness measures what it sees; a misconfigured backend yields clean-looking but meaningless data.</li>
 </ul>
 
 <div class="callout warn">
 <strong>Billing risk</strong>
-Sora and Cloudflare Realtime are billable. Sanity-check rate limits and budgets in their admin consoles before scaling to N=80. The runner enforces <code>EVAL_ALLOW_BILLING=1</code> for non-Dialog cells, but human attention is the better safeguard.
+Sora and Cloudflare Realtime are billable. Sanity-check rate limits and budgets in their admin consoles before scaling to N=80. The eval module requires <code>EVAL_ALLOW_BILLING=1</code> for non-Dialog cells, but human attention is the better safeguard.
 </div>
 
-<h3 id="before-config">2.4 Reticulum config flip (one-time)</h3>
+<h3 id="before-smoke">2.4 First-time smoke (do this once on your laptop)</h3>
 
-<p>To change a room's SFU at runtime, reticulum's <code>webrtc-settings|allow_switch_sfu</code> must be <code>true</code>. If it's currently <code>false</code> in your deployment, flip it once in the admin panel (<code>https://&lt;admin-host&gt;:8989/admin.html</code>) at the start of the eval and revert at the end. No code change required.</p>
-
-<h3 id="before-smoke">2.5 First-time smoke (do this once on your laptop)</h3>
-
-<p>Verify the entire pipe end-to-end before committing to a real cell.</p>
+<p>Verify the pipe end-to-end before committing to a real cell.</p>
 
 <div class="step"><div class="step-num">1</div><div class="step-body">
-<h3>Start the runner in a throwaway window</h3>
+<h3>Start the eval module in a throwaway window</h3>
+<div class="runs-on">Run on: eval module host</div>
 <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
-  run --rm --service-ports eval-runner runner start \
+  run --rm --service-ports eval-runner start \
     --label smoke \
-    --room https://hubs.local/<em>&lt;any-test-room-sid&gt;</em> \
+    --room https://hubs.local:4000/<em>&lt;any-test-room-sid&gt;</em> \
     --duration 90s \
     --dialog-url http://dialog:7001 \
     --host-stats docker \
     --public-url wss://${EVAL_REPORT_HOST:-hubs.local}:9099</code></pre>
-<p>The runner prints a join URL with the eval probe params.</p>
+<p>The eval module prints a join URL with the browser agent params. Port 4000 in <code>--room</code> is the local hubs dev server; for a deployed hubs behind TLS use that origin instead (typically port 443, omittable). Port 9099 in <code>--public-url</code> is the eval runner's report WebSocket (always 9099 regardless of how hubs is hosted).</p>
 </div></div>
 
 <div class="step"><div class="step-num">2</div><div class="step-body">
 <h3>Open the printed URL in your laptop browser</h3>
-<p>Add <code>&amp;label=laptop-self</code>. Open the DevTools console. Within ~10 seconds you should see:</p>
+<p>The printed URL contains <code>&amp;label=&lt;device&gt;</code>; replace <code>&lt;device&gt;</code> with <code>laptop-self</code>. Open the DevTools console. Within ~10 s you should see:</p>
 <pre><code>[eval] probe enabled mode=passive label=laptop-self report=wss://…
 [eval] clock synced offset=…ms ±…ms</code></pre>
-<p>If the clock-sync line never appears, the WebSocket isn't reaching the runner (firewall, wrong hostname, missing TLS). Fix this before going further.</p>
+<p>If the clock-sync line never appears, the WebSocket isn't reaching the eval module (firewall, wrong hostname, missing TLS). Fix before continuing.</p>
 </div></div>
 
 <div class="step"><div class="step-num">3</div><div class="step-body">
-<h3>Wait for runner exit, then check the CSVs</h3>
-<p>After 90 s the runner prints <code>[runner] aggregator wrote CSVs to …</code>. In that directory:</p>
+<h3>Wait for eval module exit, then check the CSVs</h3>
+<p>After 90 s the eval module prints <code>[runner] aggregator wrote CSVs to …</code>. In that directory:</p>
 <ul>
-  <li><code>run.json</code> should list one client with a <code>clock_ci_ms</code> &lt; 5.</li>
+  <li><code>run.json</code> should list one client with <code>clock_ci_ms</code> &lt; 5.</li>
   <li><code>probe-events.csv</code> should have <code>rtc-stats</code> rows (your laptop's PC stats).</li>
-  <li>Other CSVs may be empty (no peer, no chirps) — that's fine for a self-only smoke.</li>
+  <li>Other CSVs may be empty (no peer, no chirps) — fine for a self-only smoke.</li>
 </ul>
 </div></div>
 
 <div class="step"><div class="step-num">4</div><div class="step-body">
-<h3>Two-client smoke with a speaker bot</h3>
-<p>In one window run the runner (same command). In another, launch a single speaker bot pointed at the same room:</p>
+<h3>Two-client smoke with a speaker bot user</h3>
+<p><strong>Start order matters:</strong> launch the eval module <em>first</em> (so the report WS is up), then the bot, then the laptop browser. The bot's probe opens its WS at page-load and won't retry on failure.</p>
+<p>In one window on the eval module host, run the eval module (same command as step 1). In another window on a bot user host, launch a speaker bot user pointed at the same room:</p>
+<div class="runs-on bot">Run on: bot user host</div>
 <pre><code>cd services/hubs
 EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
 EVAL_REPORT_WS_URL=wss://${EVAL_REPORT_HOST:-hubs.local}:9099 \
 node scripts/bot/run-bot.js \
-  -o ${HUBS_HOST:-hubs.local} \
+  -o ${HUBS_HOST:-hubs.local:8080} \
   -r <em>&lt;room-sid&gt;</em> \
   -a ../../eval/assets/chirp-loop.wav</code></pre>
-<p>Join the same room from your laptop browser with <code>?eval=1&amp;mode=passive&amp;label=laptop-self&amp;report=…</code>. After the run, <code>chirp-pairs.csv</code> should have rows. If it doesn't, the chirp pipeline is broken — see <a href="#trouble">§5 Troubleshooting</a> before going further.</p>
+<p><code>-o</code> takes the hubs origin <em>including the port</em> for the host that serves <code>/hub.html</code> (the bot builds the URL as <code>https://&lt;host&gt;/hub.html</code>). In the docker-compose dev stack that's <strong>port 8080 (the hubs-client webpack dev server)</strong>, not port 4000 (reticulum, which serves room-SID URLs to browsers but returns 404 for <code>/hub.html</code>). For local dev: <code>-o hubs.local:8080</code> (or <code>export HUBS_HOST=hubs.local:8080</code>). For deployed setups, use whatever single origin serves both <code>/hub.html</code> and the room SID routes.</p>
+<p>Join the same room from your laptop browser with <code>?eval=1&amp;mode=passive&amp;label=laptop-self&amp;report=…</code>. <strong>Click at least once on the room page</strong> (the lobby/entry sequence already involves clicks) — Chrome's autoplay policy keeps the chirp detector's <code>AudioContext</code> suspended until the first user gesture, so a passive "open URL and wait" tab will produce <code>chirp-detect = 0</code>. After the run, both <code>laptop-self|chirp-detect</code> rows in <code>probe-events.csv</code> and <code>chirp-pairs.csv</code> should be non-empty. If empty, the chirp pipeline is broken — see <a href="#trouble">§5 Troubleshooting</a> before continuing.</p>
+<p>Quick mid-run sanity check (DevTools console on the laptop tab, while the runner is still counting down):</p>
+<pre><code>__eval.patcher._detector._ctx.state              // expect "running"
+__eval.patcher._detector._activeDetectors.size   // expect &gt;= 1 (one per remote audio peer)</code></pre>
 </div></div>
 
-<h3 id="before-plan">2.6 Plan the matrix</h3>
+<h3 id="before-plan">2.5 Plan the matrix</h3>
 
-<p>Decide the exact cells you'll measure before you start, including labels. A reproducible label scheme makes post-hoc aggregation trivial. Recommended:</p>
+<p>Decide every cell and its label before starting. A reproducible label scheme makes post-hoc aggregation trivial. Recommended:</p>
 
 <pre><code>&lt;hosting&gt;+&lt;sfu&gt;+N&lt;count&gt;[+&lt;variant&gt;]
 Examples:
@@ -240,58 +314,119 @@ Examples:
   cloud+sora+N20+devices
   cloud+cloudflare+N80+bots-only</code></pre>
 
-<p>Fill in the matrix tracker at <a href="#matrix">§4</a> before any measurement run.</p>
+<p>Fill in the matrix tracker at <a href="#matrix">§4</a> before any measurement.</p>
+
+<h3 id="before-network-choice">2.6 Network choice (methodological note)</h3>
+
+<p>Network is not a controlled axis in the matrix; treat it as an implicit constant:</p>
+
+<ol>
+  <li><strong>One network per cell, all participants on it</strong> (bot users, real devices, eval module). Mixing networks bundles multiple paths into every latency row and prevents attributing cell-to-cell differences to the matrix dimension that varied — most SFUs also adapt to the worst client, so per-client slicing stays confounded.</li>
+  <li><strong>Same network across all matrix cells.</strong> Use the most reliable available (typically campus-affiliated LAN; avoid guest WiFi, which often blocks UDP/STUN/TURN and breaks WebRTC).</li>
+</ol>
+
+<div class="callout">
+<strong>Realism vs. control.</strong> A controlled matrix on one LAN gives best-case numbers, not what a geographically distributed deployment would see. Don't contaminate the main matrix — run <strong>1–2 supplementary "ecological" cells</strong> alongside it (typically for the cloud hosting environment) with participants spread across home / campus / guest networks, and report them separately. Aim for representative coverage, not perfect balance. Label devices by network (<code>mac-home-1</code>, <code>iphone-campus-2</code>) so you can post-hoc slice <code>pose-pairs.csv</code> into <code>home↔home</code>, <code>home↔campus</code>, etc.
+</div>
+
+<p><strong>Within-cell hygiene:</strong> every participant must reach both chutvrc and the eval module (same-network cells avoid public-DNS/TLS/VPN setup); prefer Ethernet on every host that can take a cable; run cells close in time to avoid background-load drift.</p>
+
+<p><strong>Record per cell</strong> (matrix notes or label suffix — <code>+campus</code>, <code>+home</code>, <code>+mixed</code>): client network, medium mix, time of day.</p>
+
+<p><strong>Record per network</strong> (once, idle, before any measured cell on it — these contextualise the latency numbers):</p>
+
+<table>
+  <tr><th>Property</th><th>How to retrieve</th></tr>
+  <tr><td>Name / medium / link standard</td><td>SSID + WiFi standard (e.g. <code>campus-eduroam, 802.11ax 5GHz</code>) or wired link speed. macOS: <code>system_profiler SPAirPortDataType</code>. Linux: <code>nmcli dev wifi</code>, <code>ethtool eth0</code>.</td></tr>
+  <tr><td>Baseline RTT to chutvrc and to eval module (mean / min / max / stddev)</td><td><code>ping -c 30 &lt;host&gt;</code></td></tr>
+  <tr><td>Path + per-hop loss</td><td><code>mtr -rwc 30 &lt;chutvrc-host&gt;</code> (or plain <code>traceroute</code>)</td></tr>
+  <tr><td>Up / down throughput</td><td><code>iperf3 -c &lt;server&gt;</code> if you control both ends; otherwise <code>speedtest-cli</code> for a consumer-grade estimate.</td></tr>
+  <tr><td>UDP allowed (+ jitter, loss)</td><td><code>iperf3 -c &lt;server&gt; -u -b 5M</code>. If UDP is blocked, WebRTC falls back to TURN-over-TCP and latencies rise substantially — flag this prominently.</td></tr>
+  <tr><td>STUN / TURN reachability + NAT type</td><td>Open <code>https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/</code> — confirm <code>srflx</code> (STUN) and <code>relay</code> (TURN) candidates appear.</td></tr>
+  <tr><td>External public IP / ISP / approx. geo</td><td><code>curl ifconfig.me</code>, plus a lookup (e.g. <code>ipinfo.io/&lt;ip&gt;</code>) for the ISP and rough location.</td></tr>
+</table>
+
+<p>In-flight per-stream RTT, jitter, and packet loss are captured per cell in <code>rtc-stats.csv</code> automatically. The idle measurements above let you separate "the SFU is slow" from "this network is slow."</p>
+
+<p><strong>State as a limitation</strong> in the report: matrix cells are network-controlled (a lower bound on latency); ecological cells indicate the realistic range; production performance depends on each user's path.</p>
 
 <h3 id="before-checklist">2.7 Pre-flight checklist (print and tick)</h3>
 
 <ul class="checklist">
   <li><code>eval/assets/chirp-loop.wav</code> exists (run <code>node eval/assets/generate-chirp.js</code>).</li>
   <li><code>chutvrc-eval-runner</code> Docker image builds (<code>docker compose --profile eval … build eval-runner</code>).</li>
-  <li>Bot Puppeteer install works (<code>node scripts/bot/run-bot.js --help</code> exits 0).</li>
+  <li>Bot user Puppeteer install works (<code>node scripts/bot/run-bot.js --help</code> exits 0).</li>
   <li><code>EVAL_REPORT_HOST</code> set in <code>.env</code>; reachable from every participant device.</li>
-  <li>NTP/chrony running on runner host and bot hosts.</li>
-  <li><code>webrtc-settings|allow_switch_sfu = true</code> in admin panel.</li>
+  <li>NTP/chrony running on eval module host and bot user hosts.</li>
+  <li>chutvrc deployment path identified and tested for every hosting environment in the matrix (see §3.1 for per-cell-type references).</li>
   <li>For non-Dialog SFUs: credentials in <code>eval/.env.local</code> AND admin panel; manual two-browser sanity test passed.</li>
-  <li>Self-only smoke test produced a <code>run.json</code> with clock-CI &lt; 5 ms.</li>
-  <li>Two-client smoke (speaker bot + laptop) produced a non-empty <code>chirp-pairs.csv</code>.</li>
+  <li>Self-only smoke produced a <code>run.json</code> with clock-CI &lt; 5 ms.</li>
+  <li>Two-client smoke (speaker bot user + laptop) produced a non-empty <code>chirp-pairs.csv</code>.</li>
   <li>Matrix tracker filled in: every cell labelled, every label unique.</li>
-  <li>Sufficient bot host capacity for the largest N (~250 MB RAM per headless Chrome).</li>
-  <li>Quiet network on the runner LAN during measurement (no large concurrent transfers).</li>
-  <li>Stopwatch / timer set to 5 min for each measurement (or rely on <code>--duration</code>).</li>
+  <li>Bot user host capacity sufficient for the largest N (~250 MB RAM per headless Chrome).</li>
+  <li>Quiet network on the eval module LAN during measurement (no large concurrent transfers).</li>
+  <li>Stopwatch / timer set to 5 min per measurement (or rely on <code>--duration</code>).</li>
 </ul>
 
 <h2 id="during">3. During each cell</h2>
 
-<p>Repeat for every cell in your matrix. Each cell takes ~10 minutes of attended time.</p>
+<p>Repeat for every matrix cell. Each cell takes ~10 min of attended time.</p>
 
 <h3 id="during-recon">3.1 Reconfigure the cell (manual)</h3>
 
 <div class="step"><div class="step-num">1</div><div class="step-body">
-<h4>Hosting</h4>
-<p>If you're switching hosting environment (laptop → server → cloud), redeploy chutvrc on the target host. Verify the deployment is healthy: a normal browser can join a normal room with mic+pose working. This is not the harness's job; trust nothing the harness reports until the underlying deployment is verified.</p>
+<h4>Hosting / deployment</h4>
+<p>Bring chutvrc up on the target host using the deployment path that matches the cell type (table below). Verify health: a normal browser joins a normal room with mic+pose working. This is not the harness's job; trust no harness output until the deployment is verified.</p>
+
+<table>
+  <tr><th>Cell type</th><th>Required setup</th><th>Reference</th></tr>
+  <tr>
+    <td><code>laptop+*</code></td>
+    <td>docker-compose on a local host</td>
+    <td><code>MANUAL_SETUP.md</code>, <code>SSL_SETUP.md</code>, <code>start-{linux,mac,windows}.{sh,command,bat}</code></td>
+  </tr>
+  <tr>
+    <td><code>server+*</code></td>
+    <td>docker-compose on an on-prem Linux server</td>
+    <td><code>MANUAL_SETUP.md</code>, <code>SSL_SETUP.md</code></td>
+  </tr>
+  <tr>
+    <td><code>cloud+*</code> (compose)</td>
+    <td>docker-compose on a cloud VM</td>
+    <td><code>MANUAL_SETUP.md</code>, <code>SSL_SETUP.md</code></td>
+  </tr>
+  <tr>
+    <td><code>cloud+*+k8s</code></td>
+    <td>k8s cluster (e.g. AKS), manifest deploy; ingress + TLS; dialog pod with <code>hostNetwork</code> and <code>ANNOUNCED_IP</code> matching the node's public IP</td>
+    <td><code>k8s/docs/OVERVIEW.md</code>, <code>k8s/docs/BUILD_AND_DEPLOY.md</code>, <code>k8s/docs/COTURN_WEBRTC_FIX_PLAN.md</code></td>
+  </tr>
+</table>
+
+<p>For trade-offs between the two deployment paths and the recommended cell layout, see <code>eval/docs/deployment-comparison.md</code>.</p>
 </div></div>
 
 <div class="step"><div class="step-num">2</div><div class="step-body">
 <h4>SFU</h4>
-<p>In the admin panel (<code>https://&lt;admin-host&gt;:8989</code>), open the target room, set the SFU field:</p>
+<p>In the admin panel (<code>https://&lt;admin-host&gt;:8989</code>), open the target room and set the SFU field:</p>
 <ul>
   <li><code>0</code> Dialog</li>
   <li><code>1</code> Sora</li>
   <li><code>2</code> LiveKit</li>
   <li><code>3</code> Cloudflare Realtime</li>
 </ul>
-<p>Confirm by joining the room from one browser and checking the DevTools network tab for the expected SFU's WebSocket/HTTP traffic. Wrong SFU → meaningless data.</p>
+<p>Confirm by joining from one browser and checking DevTools Network for the expected SFU's WebSocket/HTTP traffic. Wrong SFU → meaningless data.</p>
 </div></div>
 
 <div class="step"><div class="step-num">3</div><div class="step-body">
 <h4>Room state reset</h4>
-<p>Kick any leftover participants from previous runs. The runner will refuse to attribute their data, but they'll skew SFU load if they linger. The admin panel has a kick action; alternatively, delete and re-create the room.</p>
+<p>Kick any leftover participants from previous runs. The eval module refuses to attribute their data, but they skew SFU load if they linger. Use the admin panel's kick action, or delete and re-create the room.</p>
 </div></div>
 
-<h3 id="during-runner">3.2 Start the runner</h3>
+<h3 id="during-runner">3.2 Start the eval module</h3>
 
+<div class="runs-on">Run on: eval module host</div>
 <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
-  run --rm --service-ports eval-runner runner start \
+  run --rm --service-ports eval-runner start \
     --label "<em>laptop+dialog+N40</em>" \
     --room "https://<em>${HUBS_HOST}</em>/<em>&lt;room-sid&gt;</em>" \
     --duration 5m \
@@ -299,19 +434,20 @@ Examples:
     --host-stats docker \
     --public-url "wss://${EVAL_REPORT_HOST}:9099"</code></pre>
 
-<p>The runner stays attached to the terminal; copy the join URL it prints. The 5-minute timer starts <em>now</em>, so move fast.</p>
+<p>The eval module stays attached to the terminal; copy the join URL it prints. The 5-min timer starts <em>now</em> — move fast.</p>
 
 <div class="callout warn">
-<strong>If the runner won't start</strong>
-Almost always either port 9099 is already in use (another runner not shut down cleanly) or the EVAL profile isn't activated. <code>docker ps</code> to check, <code>docker compose --profile eval … down</code> if needed.
+<strong>If the eval module won't start</strong>
+Almost always: port 9099 in use (previous eval module not shut down cleanly) or EVAL profile not activated. <code>docker ps</code> to check; <code>docker compose --profile eval … down</code> to fix.
 </div>
 
 <h3 id="during-speaker">3.3 Launch the speaker</h3>
 
-<p>Choose <strong>one</strong> of: a designated speaker bot, or a designated real-device speaker. Never more than one — chirps from multiple sources cannot be disambiguated.</p>
+<p>Choose <strong>one</strong>: a designated speaker bot user, or a real-device speaker. Never more than one — chirps from multiple sources cannot be disambiguated.</p>
 
-<h4>Option A — bot speaker</h4>
+<h4>Option A — bot user speaker (recommended for cleanest cells)</h4>
 
+<div class="runs-on bot">Run on: bot user host — a machine separate from the chutvrc / eval module host</div>
 <pre><code>cd services/hubs
 EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
 EVAL_REPORT_WS_URL="wss://${EVAL_REPORT_HOST}:9099" \
@@ -320,12 +456,18 @@ node scripts/bot/run-bot.js \
   -r "<em>&lt;room-sid&gt;</em>" \
   -a ../../eval/assets/chirp-loop.wav &amp;</code></pre>
 
+<div class="callout warn">
+<strong>Do not launch the speaker bot user on the chutvrc / eval module host.</strong>
+Co-locating it (i) makes <code>host.csv</code> measure the bot user's CPU/RAM as chutvrc load, (ii) shortcuts the bot user's WebRTC traffic onto localhost — not representative of any real client's network path, and (iii) gives the bot user artificially perfect clock-sync with the eval module (shared kernel clock), biasing every cross-client latency. Use a different machine — even a laptop is enough for a single bot user (~250 MB RAM). At N ≥ 40, give the speaker its own bot user host so listener bot user CPU pressure doesn't delay <code>chirp-emit</code> timestamps.
+</div>
+
 <h4>Option B — real-device speaker</h4>
 
-<p>Open the runner's join URL on the designated speaker device, replacing <code>&amp;mode=passive</code> with <code>&amp;mode=speaker</code> and <code>&amp;label=&lt;device&gt;</code> with a unique speaker tag (e.g., <code>&amp;label=speaker-laptop</code>). Click anywhere on the page once to unlock audio playback (mobile autoplay policy).</p>
+<p>On the speaker device (a real phone/laptop/etc., <em>not</em> a host running any of the commands above), open the eval module's join URL, replacing <code>&amp;mode=passive</code> with <code>&amp;mode=speaker</code> and <code>&amp;label=&lt;device&gt;</code> with a unique speaker tag (e.g. <code>&amp;label=speaker-laptop</code>). Click anywhere once to unlock audio playback (mobile autoplay policy).</p>
 
-<h3 id="during-listeners">3.4 Launch listener bots (only if your N exceeds your real-device count)</h3>
+<h3 id="during-listeners">3.4 Launch listener bot users (only if your N exceeds your real-device count)</h3>
 
+<div class="runs-on bot">Run on: bot user host (split across multiple at N ≥ 40)</div>
 <pre><code>cd services/hubs
 # Adjust the count to reach your target N.
 for i in $(seq 1 <em>39</em>); do
@@ -337,155 +479,165 @@ for i in $(seq 1 <em>39</em>); do
     -a ../../eval/assets/chirp-loop.wav &amp;
 done</code></pre>
 
-<p>Wait ~30 s for all bots to fully join. The runner logs <code>[runner] hello client_id=… label=bot-listener-N</code> for each one. If you see fewer hellos than bots you launched, some failed — check the bot terminal output.</p>
+<p>Wait ~30 s for all bot users to join. The eval module logs <code>[runner] hello client_id=… label=bot-listener-N</code> for each. Fewer hellos than launched bot users → some failed; check bot user terminal output.</p>
 
 <div class="callout">
-<strong>Multi-host bot distribution</strong>
-At N≥40 you'll likely run out of RAM on one box. SSH the same loop to a second host with the same env vars. The runner correlates them by <code>client_id</code> + <code>label</code>; nothing else changes.
+<strong>Multi-host bot user distribution</strong>
+At N≥40 you'll likely run out of RAM on one box. SSH the same loop to a second host with the same env vars. The eval module correlates by <code>client_id</code> + <code>label</code>; nothing else changes.
 </div>
 
 <h3 id="during-devices">3.5 Bring in real devices</h3>
 
 <p>For each device:</p>
 <ol>
-  <li>Scan the QR / open the runner's join URL.</li>
-  <li>Edit the URL bar: replace <code>&amp;label=&lt;device&gt;</code> with a unique tag, e.g. <code>quest3-haru</code>, <code>ipad-2-tabA</code>, <code>macbook-3-tabB</code>. Each tab gets a different label.</li>
+  <li>Scan the QR / open the eval module's join URL.</li>
+  <li>Edit the URL bar: replace <code>&amp;label=&lt;device&gt;</code> with a unique tag (e.g. <code>quest3-haru</code>, <code>ipad-2-tabA</code>, <code>macbook-3-tabB</code>). Each tab gets a different label.</li>
   <li>Click once on the page to unlock audio.</li>
-  <li>Confirm in the device's browser console (or the runner's terminal) that the probe shows <code>[eval] clock synced</code>.</li>
+  <li>Confirm in the device's browser console (or eval module terminal) that the browser agent shows <code>[eval] clock synced</code>.</li>
 </ol>
 
 <h3 id="during-monitor">3.6 Monitor the run</h3>
 
-<p>For the full duration, watch:</p>
+<p>Throughout the run, watch:</p>
 <ul>
-  <li><strong>Runner terminal</strong> — every connect/disconnect should be expected. Disconnects mid-run usually mean a bot ran out of memory.</li>
-  <li><strong>One representative listener device console</strong> — should keep emitting <code>[eval] clock re-validated</code> roughly every 30 s, no error spam.</li>
-  <li><strong>chutvrc deployment health</strong> — dialog/reticulum containers should not be OOM-killed or restarting. <code>docker stats</code> or <code>kubectl top pods</code>.</li>
+  <li><strong>Eval module terminal</strong> — every connect/disconnect should be expected. Mid-run disconnects usually mean a bot user ran out of memory.</li>
+  <li><strong>One representative listener console</strong> — should emit <code>[eval] clock re-validated</code> ~every 30 s, no error spam.</li>
+  <li><strong>chutvrc deployment health</strong> — dialog/reticulum containers should not OOM-kill or restart. <code>docker stats</code> or <code>kubectl top pods</code>.</li>
 </ul>
 
-<p>Do <strong>not</strong> tweak chutvrc, the network, or other clients during the run. A reconfiguration mid-cell invalidates the cell. Mark down anything unusual that happens for your notes.</p>
+<p>Do <strong>not</strong> tweak chutvrc, the network, or other clients during the run. Mid-cell reconfiguration invalidates the cell. Note anything unusual.</p>
 
 <h3 id="during-validate">3.7 Validate &amp; archive</h3>
 
-<p>When the runner exits, immediately check the produced <code>eval/results/&lt;run_id&gt;/</code>:</p>
+<p>When the eval module exits, immediately check <code>eval/results/&lt;run_id&gt;/</code>:</p>
 
 <div class="verify-block">
 <h4>Per-cell validation (do this before starting the next cell)</h4>
 <ul class="checklist">
-  <li><code>run.json</code> exists. Open it. <code>clients</code> array length equals (speakers + listeners + real devices). If any are missing, that participant's data never reached the runner.</li>
-  <li>Every entry in <code>run.json</code>'s <code>clients</code> has <code>clock_ci_ms</code> &lt; 5. Cells with worse CIs may be discarded.</li>
-  <li>No entry has a non-empty <code>warnings</code> array. The most likely warning is "more than one mode=speaker" — if you see it, the cell is contaminated; re-run.</li>
-  <li><code>pose-pairs.csv</code> line count is roughly N × (N−1) × 4 × 67 × duration_sec × sample_rate. For a 5-min N=10 dialog cell at sample_rate=1, expect ~720,000 rows. Order-of-magnitude is fine.</li>
-  <li><code>chirp-pairs.csv</code> has roughly (number of listeners) × (duration_sec / 1.5) rows. Below 50% of expected means some listeners weren't hearing the speaker — investigate before trusting the cell.</li>
-  <li><code>host.csv</code> has rows for at least <code>dialog</code> and <code>reticulum</code> containers (or your equivalent). If empty, <code>--host-stats</code> was wrong.</li>
+  <li><code>run.json</code> exists. <code>clients</code> array length equals (speakers + listeners + real devices). Missing entries → that participant's data never reached the eval module.</li>
+  <li>Every <code>clients</code> entry has <code>clock_ci_ms</code> &lt; 5. Worse CIs may be discarded.</li>
+  <li>No entry has a non-empty <code>warnings</code> array. The likely warning is "more than one mode=speaker" — if seen, the cell is contaminated; re-run.</li>
+  <li><code>pose-pairs.csv</code> row count ≈ N × (N−1) × 4 × 67 × duration_sec × sample_rate. A 5-min N=10 dialog cell at sample_rate=1 → ~720,000 rows. Order-of-magnitude is fine.</li>
+  <li><code>chirp-pairs.csv</code> rows ≈ (listener count) × (duration_sec / 1.5). Below 50% of expected → some listeners weren't hearing the speaker; investigate before trusting the cell.</li>
+  <li><code>host.csv</code> has rows for at least <code>dialog</code> and <code>reticulum</code> (or your equivalent). Empty → <code>--host-stats</code> was wrong.</li>
 </ul>
 </div>
 
-<p>Rename the result directory if useful (default name is <code>&lt;ISO-timestamp&gt;_&lt;label&gt;</code>, which is already self-describing). Copy or move it to your archival location — these CSVs are the primary source data for whatever analysis or report you produce from this run.</p>
+<p>Rename the result directory if useful (default <code>&lt;ISO-timestamp&gt;_&lt;label&gt;</code> is already self-describing). Copy or move it to archival storage — these CSVs are the primary source data for any analysis or report.</p>
 
-<p>Update the matrix tracker (§4) with the run_id, CI, and any notes.</p>
+<p>Update the matrix tracker (§4) with run_id, CI, and notes.</p>
 
 <h2 id="matrix">4. Matrix tracker</h2>
 
-<p>Fill before measurement; check off as cells complete. Reproduce this table in a notebook or spreadsheet — these are the cells you committed to before any data collection began.</p>
+<p>Fill before measurement; check off as cells complete. Reproduce this table in a notebook or spreadsheet — these are the cells you committed to before any data collection.</p>
 
 <div class="matrix-row header">
   <div>Done</div><div>Label</div><div>Cell (hosting + SFU + N)</div><div>Speaker</div><div>Clock CI</div><div>run_id</div>
 </div>
 
 <!-- The table below is a placeholder pattern. Duplicate rows as needed. -->
-<div class="matrix-row"><div>☐</div><div>laptop+dialog+N5</div><div>laptop / Dialog / 5</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>laptop+dialog+N10</div><div>laptop / Dialog / 10</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>laptop+dialog+N20</div><div>laptop / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>laptop+dialog+N40</div><div>laptop / Dialog / 40</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>laptop+dialog+N80</div><div>laptop / Dialog / 80</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N5</div><div>laptop / Dialog / 5</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N10</div><div>laptop / Dialog / 10</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N20</div><div>laptop / Dialog / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N40</div><div>laptop / Dialog / 40</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>laptop+dialog+N80</div><div>laptop / Dialog / 80</div><div>bot user</div><div>___ ms</div><div>______</div></div>
 
-<div class="matrix-row"><div>☐</div><div>server+dialog+N20</div><div>on-prem server / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>server+livekit+N20</div><div>on-prem server / LiveKit / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>server+sora+N20</div><div>on-prem server / Sora / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>server+cloudflare+N20</div><div>on-prem server / Cloudflare / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+dialog+N20</div><div>on-prem server / Dialog / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+livekit+N20</div><div>on-prem server / LiveKit / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+sora+N20</div><div>on-prem server / Sora / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>server+cloudflare+N20</div><div>on-prem server / Cloudflare / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
 
-<div class="matrix-row"><div>☐</div><div>cloud+dialog+N20</div><div>cloud VM / Dialog / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>cloud+livekit+N20</div><div>cloud VM / LiveKit / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>cloud+sora+N20</div><div>cloud VM / Sora / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
-<div class="matrix-row"><div>☐</div><div>cloud+cloudflare+N20</div><div>cloud VM / Cloudflare / 20</div><div>bot</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+dialog+N20</div><div>cloud VM / Dialog / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+livekit+N20</div><div>cloud VM / LiveKit / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+sora+N20</div><div>cloud VM / Sora / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
+<div class="matrix-row"><div>☐</div><div>cloud+cloudflare+N20</div><div>cloud VM / Cloudflare / 20</div><div>bot user</div><div>___ ms</div><div>______</div></div>
 
-<p style="font-size: 13.5px; color: var(--muted); margin-top: 12px;">Add cells with real devices (suffix <code>+devices</code>) at whatever N your device collection supports. These don't need to be in the formal matrix but are valuable for capturing realistic per-device behavior.</p>
+<p style="font-size: 13.5px; color: var(--muted); margin-top: 12px;">Add real-device cells (suffix <code>+devices</code>) at whatever N your device collection supports. Not required in the formal matrix, but valuable for realistic per-device behavior.</p>
 
 <h2 id="trouble">5. Troubleshooting</h2>
 
-<h3>Probe never logs "clock synced"</h3>
-<p>The probe loaded but can't talk to the runner. In order of likelihood:</p>
+<h3>Browser agent never logs "clock synced"</h3>
+<p>The browser agent loaded but can't reach the eval module. Likely causes, in order:</p>
 <ul>
-  <li>Wrong <code>&amp;report=</code> URL in the join URL. Compare against what the runner printed.</li>
-  <li>Mixed-content blocking: a <code>wss://</code> page can connect to <code>wss://</code> runner, but an <code>http://</code> page cannot connect to <code>ws://</code> in many browsers. Either everything is TLS or nothing is.</li>
-  <li>Firewall blocking port 9099 on the runner host.</li>
-  <li>If using k8s ingress: certificate not trusted, or websocket-tunnel timeout too short (haproxy default is 60s; set <code>haproxy.org/timeout-tunnel: "30m"</code>).</li>
+  <li>Wrong <code>&amp;report=</code> URL. Compare against the eval module's printed URL.</li>
+  <li>Mixed-content blocking: an <code>https://</code> page can only open <code>wss://</code>, and an <code>http://</code> page can only open <code>ws://</code>. Either everything is TLS or nothing is. The eval-runner reads <code>EVAL_TLS_CERT</code> / <code>EVAL_TLS_KEY</code> at startup; <code>docker-compose.eval.yml</code> defaults them to <code>/certs/cert.pem</code> + <code>/certs/key.pem</code> (mounted from <code>services/hubs/certs/</code>) so local dev gets <code>wss://</code> automatically. Confirm <code>[runner] report WS listening on wss://…</code> in the runner's first lines; if it logs <code>(no TLS)</code> instead, the cert paths weren't readable.</li>
+  <li>Browser doesn't trust the cert at <code>wss://&lt;runner-host&gt;:9099</code>. If your hubs page loads without a warning, mkcert's root CA is already trusted — the same cert should validate on 9099. Otherwise, visit <code>https://&lt;runner-host&gt;:9099/</code> once to accept the cert (you'll see "Upgrade Required" — that's fine, the exception is what matters).</li>
+  <li>CSP blocks the report origin. Reticulum sets a strict <code>Content-Security-Policy</code> header on the hub page; <code>connect-src</code> must include <code>wss://&lt;runner-host&gt;:9099</code> or the browser refuses to open the WebSocket (DevTools shows "Connecting to '…' violates the following Content Security Policy directive: 'connect-src …'"). For local dev this is added in <code>services/reticulum/config/dev.exs</code> (the <code>websocket_hosts</code> string) — restart reticulum to apply. For deployed setups, add the runner's URL via reticulum's admin config (<code>RetWeb.Plugs.AddCSP</code> custom rules).</li>
+  <li>Firewall blocking port 9099 on the eval module host.</li>
+  <li>k8s ingress: untrusted certificate, or websocket-tunnel timeout too short (haproxy default 60 s; set <code>haproxy.org/timeout-tunnel: "30m"</code>).</li>
 </ul>
 
 <h3>chirp-pairs.csv is empty or sparse</h3>
 <ul>
   <li>No speaker connected, or the speaker died. Check <code>run.json</code> for a client with <code>mode: "speaker"</code>.</li>
-  <li>Speaker bot ran without <code>EVAL_SPEAKER=1</code> — it defaulted to passive and emitted no chirps.</li>
-  <li>Mobile-device speaker without a click-to-unlock-audio gesture. <code>mode=speaker</code> is rarely the right choice for phones/tablets — use bot speakers instead.</li>
-  <li>Goertzel false-negative due to codec degradation. Verify by listening: have a human join the room and confirm they hear the periodic 1 kHz blips from the speaker.</li>
+  <li>Speaker bot user ran without <code>EVAL_SPEAKER=1</code> — defaulted to passive, emitted no chirps.</li>
+  <li>Mobile speaker without a click-to-unlock-audio gesture. <code>mode=speaker</code> rarely suits phones/tablets — prefer bot user speakers.</li>
+  <li>Goertzel false-negative from codec degradation. Verify by listening: a human joins the room and confirms they hear the periodic 1 kHz blips.</li>
+  <li><strong>Audible chirps but <code>chirp-detect = 0</code></strong> (emit count looks normal in <code>probe-events.csv</code> but detect count is zero on every listener). The detector's <code>AudioContext</code> is suspended by Chrome's autoplay policy. The probe auto-resumes on the first <code>pointerdown</code>/<code>keydown</code>/<code>touchstart</code>/<code>click</code>, so a listener tab that's only "opened and observed" without any click stays in this failure mode. Click anywhere on the room page once and re-run. Verify mid-run with <code>__eval.patcher._detector._ctx.state === "running"</code>.</li>
 </ul>
 
 <h3>pose-pairs.csv has far fewer rows than expected</h3>
 <ul>
-  <li>You used <code>?sample=&lt;x&gt;</code> on listener URLs and forgot to multiply expectations by <code>x</code>.</li>
-  <li>Bots died mid-run. Check bot terminals for <code>process.exit</code>, OOM, or "Detected avatar dog-pile" — the last should be <code>continuing</code> in EVAL_MODE; if it's <code>Restarting</code>, the bot wasn't launched with <code>EVAL_MODE=1</code>.</li>
-  <li>Receive-side sampling is on. The probe defaults to <code>sample=1.0</code> (100%). At N ≥ 40 some operators set <code>sample=0.1</code> to reduce WS bandwidth.</li>
+  <li>You used <code>?sample=&lt;x&gt;</code> on listener URLs and forgot to scale expectations by <code>x</code>.</li>
+  <li>Bot users died mid-run. Check bot user terminals for <code>process.exit</code>, OOM, or "Detected avatar dog-pile" — the last should be <code>continuing</code> in EVAL_MODE; if <code>Restarting</code>, the bot user wasn't launched with <code>EVAL_MODE=1</code>.</li>
+  <li>Receive-side sampling on. Browser agent defaults to <code>sample=1.0</code> (100%); at N ≥ 40 some operators set <code>sample=0.1</code> to reduce WS bandwidth.</li>
 </ul>
 
 <h3>clock_ci_ms is large (&gt; 5)</h3>
 <ul>
-  <li>Run a quick LAN ping to the runner host. If RTT itself is &gt; 5 ms, latency-level accuracy is what you have.</li>
-  <li>WiFi vs Ethernet: if the runner is on WiFi, move it to Ethernet for the eval.</li>
-  <li>Background network load on the runner host — pause syncs, large downloads, screen-shares.</li>
+  <li>LAN-ping the eval module host. RTT &gt; 5 ms → latency-level accuracy is what you have.</li>
+  <li>If the eval module is on WiFi, move it to Ethernet for the eval.</li>
+  <li>Background network load on the eval module host — pause syncs, large downloads, screen shares.</li>
 </ul>
 
-<h3>Runner immediately exits with "EADDRINUSE"</h3>
-<p>Port 9099 already taken. <code>lsof -i :9099</code> (mac/linux) or <code>netstat -ano | findstr 9099</code> (Windows) to find the holder, kill it, or pass <code>--port 9100</code> (also update <code>EVAL_REPORT_HOST</code>-derived URLs).</p>
+<h3>Eval module immediately exits with "EADDRINUSE"</h3>
+<p>Port 9099 already taken. Find the holder with <code>lsof -i :9099</code> (mac/linux) or <code>netstat -ano | findstr 9099</code> (Windows); kill it, or pass <code>--port 9100</code> (also update <code>EVAL_REPORT_HOST</code>-derived URLs).</p>
 
 <h3>rtc-stats.csv is missing fields for LiveKit / Sora</h3>
-<p>The probe reaches into adapter internals (<code>_sendTransport</code>, <code>room.engine.publisher.pc</code>, etc.) via known field names. If the upstream adapter changed shape, the PeerConnection list comes back empty. Open <code>services/hubs/src/eval/rtc-stats.ts</code>, function <code>extractPeerConnections</code>, and adjust the field paths to match the current adapter. All other metrics keep working.</p>
+<p>The browser agent reaches into adapter internals (<code>_sendTransport</code>, <code>room.engine.publisher.pc</code>, etc.) via known field names. If the upstream adapter changed shape, the PeerConnection list is empty. Edit <code>extractPeerConnections</code> in <code>services/hubs/src/eval/rtc-stats.ts</code> to match the current adapter's field paths. Other metrics keep working.</p>
 
 <h2 id="after">6. After all cells</h2>
 
+<h4>Stop the eval module container</h4>
+<div class="runs-on">Run on: eval module host</div>
+<pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml down</code></pre>
+
+<h4>Kill any leftover bot user processes</h4>
+<div class="runs-on bot">Run on: every bot user host</div>
+<pre><code>pkill -f run-bot.js</code></pre>
+
+<h4>Then</h4>
 <ul class="checklist">
-  <li>Revert the <code>webrtc-settings|allow_switch_sfu</code> flip in the admin panel if your production deployment requires it.</li>
-  <li>Stop and remove any leftover bot processes and runner containers (<code>docker compose --profile eval … down</code>; <code>pkill -f run-bot.js</code>).</li>
-  <li>Archive the entire <code>eval/results/</code> directory to long-term storage. The CSVs are the primary source data behind any number you'll report; treat them as such.</li>
-  <li>For each figure or summary you produce, fill in the corresponding row of <code>eval/docs/figures-to-commands.md</code> with the run_id and exact CLI used.</li>
-  <li>Run the aggregation snippet in <code>eval/docs/interpreting-results.md</code> over all <code>run.json</code>s to produce the per-cell summary table.</li>
+  <li>Archive the entire <code>eval/results/</code> directory (on the eval module host) to long-term storage. The CSVs are the primary source for any reported number; treat them as such.</li>
+  <li>For each figure or summary you produce, fill the corresponding row of <code>eval/docs/figures-to-commands.md</code> with run_id and exact CLI.</li>
+  <li>Run the aggregation snippet in <code>eval/docs/interpreting-results.md</code> across all <code>run.json</code>s for the per-cell summary table.</li>
   <li>Generate plots from the CSVs using your preferred tool (matplotlib, R, ggplot, Excel).</li>
 </ul>
 
 <h2 id="refs">7. Quick reference</h2>
 
-<h4>Probe URL parameters</h4>
+<h4>Browser agent URL parameters</h4>
 <table>
   <tr><th>Param</th><th>Values</th><th>Notes</th></tr>
-  <tr><td><code>eval</code></td><td><code>1</code></td><td>Required to load the probe at all.</td></tr>
-  <tr><td><code>mode</code></td><td><code>passive</code> (default) / <code>speaker</code></td><td>Exactly one client per run should be speaker.</td></tr>
-  <tr><td><code>label</code></td><td>any unique string</td><td>Used to slice results by device/role.</td></tr>
+  <tr><td><code>eval</code></td><td><code>1</code></td><td>Required to load the browser agent.</td></tr>
+  <tr><td><code>mode</code></td><td><code>passive</code> (default) / <code>speaker</code></td><td>Exactly one client per run is the speaker.</td></tr>
+  <tr><td><code>label</code></td><td>any unique string</td><td>Slices results by device/role.</td></tr>
   <tr><td><code>report</code></td><td><code>wss://host:port</code></td><td>Where to ship measurements. Must be reachable from this device.</td></tr>
   <tr><td><code>sample</code></td><td><code>0&lt;x≤1</code> (default <code>1</code>)</td><td>Receive-side sampling rate; send events always 100%.</td></tr>
-  <tr><td><code>hub_id</code></td><td>hub sid</td><td>Optional override if the probe can't infer it from APP.</td></tr>
+  <tr><td><code>hub_id</code></td><td>hub sid</td><td>Optional override when the browser agent can't infer from APP.</td></tr>
 </table>
 
-<h4>Bot env vars</h4>
+<h4>Bot user env vars</h4>
 <table>
   <tr><th>Var</th><th>Effect</th></tr>
   <tr><td><code>EVAL_MODE=1</code></td><td>Activates everything below; also adds Puppeteer autoplay flags &amp; skips dog-pile exit.</td></tr>
   <tr><td><code>EVAL_LABEL=<em>tag</em></code></td><td>The label shipped in the hello message.</td></tr>
-  <tr><td><code>EVAL_SPEAKER=1</code></td><td>Probe loads with <code>mode=speaker</code>.</td></tr>
-  <tr><td><code>EVAL_REPORT_WS_URL=<em>wss://…</em></code></td><td>Runner endpoint.</td></tr>
-  <tr><td><code>EVAL_SAMPLE_RATE=<em>0.1</em></code></td><td>Receive-side sampling rate (rarely needed for bots).</td></tr>
+  <tr><td><code>EVAL_SPEAKER=1</code></td><td>Browser agent loads with <code>mode=speaker</code>.</td></tr>
+  <tr><td><code>EVAL_REPORT_WS_URL=<em>wss://…</em></code></td><td>Eval module endpoint.</td></tr>
+  <tr><td><code>EVAL_SAMPLE_RATE=<em>0.1</em></code></td><td>Receive-side sampling rate (rarely needed for bot users).</td></tr>
 </table>
 
-<h4>Runner CLI</h4>
+<h4>Eval module CLI</h4>
 <table>
   <tr><th>Flag</th><th>Required</th><th>Default</th></tr>
   <tr><td><code>--label</code></td><td>yes</td><td>—</td></tr>
@@ -513,7 +665,7 @@ At N≥40 you'll likely run out of RAM on one box. SSH the same loop to a second
 <table>
   <tr><th>File</th><th>Used for</th></tr>
   <tr><td><code>run.json</code></td><td>Manifest, per-client clock CI, warnings.</td></tr>
-  <tr><td><code>probe-events.csv</code></td><td>Every probe event raw (debug).</td></tr>
+  <tr><td><code>probe-events.csv</code></td><td>Every browser agent event raw (debug).</td></tr>
   <tr><td><code>pose-pairs.csv</code></td><td>Avatar-pose latency (primary RQ1/RQ2 source).</td></tr>
   <tr><td><code>chirp-pairs.csv</code></td><td>Audio latency.</td></tr>
   <tr><td><code>audio-avatar-offset.csv</code></td><td>Audio↔avatar offset.</td></tr>
@@ -523,6 +675,16 @@ At N≥40 you'll likely run out of RAM on one box. SSH the same loop to a second
 </table>
 
 <hr>
+
+<h2 id="notes">8. Notes &amp; scope decisions</h2>
+
+<h4>Runtime SFU switching is out of scope</h4>
+<p>This evaluation does not exercise live SFU switching mid-room. Each cell is measured with a single SFU configured in reticulum before the eval module starts; switching to a different SFU is done by reconfiguring the room (see §3.1) and starting a fresh cell, not by toggling at runtime. As a consequence:</p>
+<ul>
+  <li>The reticulum <code>webrtc-settings|allow_switch_sfu</code> flag is irrelevant for this evaluation and does not need to be flipped or reverted.</li>
+  <li>No mid-run reconfiguration logic in chutvrc is exercised by these measurements; the data characterises steady-state behaviour per (hosting, SFU, N) cell only.</li>
+</ul>
+
 <p class="meta">For the harness API surface and CSV column legend see <code>eval/docs/README.md</code> and <code>eval/docs/interpreting-results.md</code>.</p>
 
 </main>

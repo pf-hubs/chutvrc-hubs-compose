@@ -56,7 +56,7 @@ ServerConfig once for the duration of the eval. No source change required.
 
 ```bash
 docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
-  run --rm --service-ports eval-runner runner start \
+  run --rm --service-ports eval-runner start \
     --label "laptop+dialog+real-devices-only" \
     --room https://hubs.local/<room-sid> \
     --duration 5m \

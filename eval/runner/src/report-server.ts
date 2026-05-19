@@ -1,5 +1,8 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { IncomingMessage } from "http";
+import * as https from "https";
+import * as fs from "fs";
+import { Server as HttpsServer } from "https";
 import {
   ClockOffsetMsg,
   ClockPingMsg,
@@ -41,6 +44,7 @@ export type EventRow = ProbeEvent & {
 
 export class ReportServer {
   private _wss: WebSocketServer;
+  private _httpsServer: HttpsServer | null = null;
   private _runId: string;
   private _clients = new Map<ClientId, ClientRecord>();
   private _wsToClient = new Map<WebSocket, ClientId | null>();
@@ -53,7 +57,20 @@ export class ReportServer {
   constructor(runId: string, port: number, onEvent: (event: EventRow) => void) {
     this._runId = runId;
     this._onEvent = onEvent;
-    this._wss = new WebSocketServer({ port });
+    const certPath = process.env.EVAL_TLS_CERT;
+    const keyPath = process.env.EVAL_TLS_KEY;
+    if (certPath && keyPath) {
+      this._httpsServer = https.createServer({
+        cert: fs.readFileSync(certPath),
+        key: fs.readFileSync(keyPath)
+      });
+      this._wss = new WebSocketServer({ server: this._httpsServer });
+      this._httpsServer.listen(port);
+      console.log(`[runner] report WS listening on wss://0.0.0.0:${port} (TLS)`);
+    } else {
+      this._wss = new WebSocketServer({ port });
+      console.log(`[runner] report WS listening on ws://0.0.0.0:${port} (no TLS)`);
+    }
     this._wss.on("connection", (ws, req) => this._onConnection(ws, req));
   }
 
@@ -70,6 +87,7 @@ export class ReportServer {
       }
     }
     this._wss.close();
+    if (this._httpsServer) this._httpsServer.close();
   }
 
   clients(): ClientRecord[] {

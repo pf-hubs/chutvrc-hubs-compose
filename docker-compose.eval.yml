@@ -3,7 +3,7 @@
 # Usage:
 #   # Run a single measurement cell (5-minute default duration):
 #   docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
-#     run --rm --service-ports eval-runner runner start \
+#     run --rm --service-ports eval-runner start \
 #       --label "laptop+dialog+real-devices-only" \
 #       --room https://hubs.local/<room-sid> \
 #       --duration 5m \
@@ -26,11 +26,18 @@ services:
     image: chutvrc-eval-runner:latest
     environment:
       EVAL_REPORT_HOST: ${EVAL_REPORT_HOST:-hubs.local}
+      # When EVAL_TLS_CERT and EVAL_TLS_KEY point at readable PEM files, the
+      # report WS server listens as wss:// (required when the hubs page is
+      # served over HTTPS, since browsers force the report channel to match).
+      # Leave empty for plain ws:// (e.g. when an external proxy terminates TLS).
+      EVAL_TLS_CERT: ${EVAL_TLS_CERT:-/certs/cert.pem}
+      EVAL_TLS_KEY: ${EVAL_TLS_KEY:-/certs/key.pem}
     ports:
       - "9099:9099"
     volumes:
       - ./eval/results:/results
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./services/hubs/certs:/certs:ro
     working_dir: /results
     # `run --rm` for one-shot evaluations; `up -d` is not the intended mode.
     command: ["--help"]

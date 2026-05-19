@@ -1,0 +1,1884 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chutvrc 評価マニュアル</title>
+    <style>
+      :root {
+        --ink: #1d1d1f;
+        --muted: #555;
+        --rule: #d9d9dc;
+        --accent: #1d4ed8;
+        --warn: #b45309;
+        --code-bg: #f5f5f7;
+        --kbd-bg: #e8e8ec;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        font:
+          16px/1.7 -apple-system,
+          BlinkMacSystemFont,
+          "Hiragino Sans",
+          "Yu Gothic",
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          sans-serif;
+        color: var(--ink);
+      }
+      body {
+        margin: 0;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      nav.toc {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        max-height: 100vh;
+        overflow-y: auto;
+        padding: 24px 16px;
+        border-right: 1px solid var(--rule);
+        font-size: 14px;
+      }
+      nav.toc h2 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      nav.toc ol {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      nav.toc ol ol {
+        margin-left: 12px;
+        font-size: 13px;
+      }
+      nav.toc li {
+        margin: 4px 0;
+      }
+      nav.toc a {
+        color: var(--ink);
+        text-decoration: none;
+      }
+      nav.toc a:hover {
+        color: var(--accent);
+        text-decoration: underline;
+      }
+      main {
+        padding: 32px 36px 80px;
+        max-width: 880px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 22px;
+        margin: 36px 0 8px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--rule);
+      }
+      h3 {
+        font-size: 17px;
+        margin: 22px 0 6px;
+      }
+      h4 {
+        font-size: 15px;
+        margin: 16px 0 4px;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+      }
+      p,
+      ul,
+      ol,
+      table {
+        margin: 8px 0 12px;
+      }
+      ul ul,
+      ol ol,
+      ul ol,
+      ol ul {
+        margin: 4px 0;
+      }
+      code {
+        font-family: "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13.5px;
+        background: var(--code-bg);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      pre {
+        background: var(--code-bg);
+        padding: 12px 14px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+      }
+      kbd {
+        font-family: inherit;
+        background: var(--kbd-bg);
+        border-radius: 3px;
+        padding: 1px 5px;
+        font-size: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14.5px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      th {
+        background: #fafafb;
+        font-weight: 600;
+      }
+      .lead {
+        font-size: 17px;
+        color: var(--muted);
+        margin: 4px 0 16px;
+      }
+      .meta {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 24px;
+      }
+      .checklist {
+        list-style: none;
+        padding: 0;
+      }
+      .checklist li {
+        padding: 4px 0 4px 28px;
+        position: relative;
+      }
+      .checklist li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 9px;
+        width: 16px;
+        height: 16px;
+        border: 1.5px solid var(--ink);
+        border-radius: 3px;
+        background: white;
+      }
+      .callout {
+        border-left: 4px solid var(--accent);
+        background: #f0f4ff;
+        padding: 10px 14px;
+        margin: 12px 0;
+        font-size: 14.5px;
+        border-radius: 0 4px 4px 0;
+      }
+      .callout.warn {
+        border-left-color: var(--warn);
+        background: #fff7ed;
+      }
+      .callout strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .step {
+        display: flex;
+        gap: 12px;
+        margin: 14px 0;
+      }
+      .step-num {
+        flex: 0 0 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--ink);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .step-body {
+        flex: 1;
+      }
+      .step-body h3 {
+        margin: 4px 0 6px;
+      }
+      .matrix-row {
+        display: grid;
+        grid-template-columns: 80px 1fr 1fr 60px 90px 90px;
+        gap: 8px;
+        padding: 6px 0;
+        border-bottom: 1px dashed var(--rule);
+        font-size: 13.5px;
+      }
+      .matrix-row.header {
+        font-weight: 600;
+        border-bottom: 1.5px solid var(--ink);
+      }
+      .verify-block {
+        background: #f5f5f7;
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin: 12px 0;
+        font-size: 14px;
+      }
+      .verify-block h4 {
+        margin-top: 0;
+        color: var(--ink);
+      }
+      .runs-on {
+        display: inline-block;
+        font-size: 12px;
+        background: #eef2ff;
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: 3px;
+        margin: 6px 0 4px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+      }
+      .runs-on.bot {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .runs-on.any {
+        background: #ecfdf5;
+        color: #047857;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid var(--rule);
+        margin: 30px 0;
+      }
+      @media print {
+        nav.toc {
+          display: none;
+        }
+        .layout {
+          display: block;
+        }
+        main {
+          max-width: none;
+          padding: 16px;
+        }
+        pre,
+        .callout,
+        .verify-block {
+          break-inside: avoid;
+        }
+        h2 {
+          break-before: page;
+        }
+        h2:first-of-type {
+          break-before: auto;
+        }
+      }
+      @media (max-width: 800px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        nav.toc {
+          position: static;
+          max-height: none;
+          border-right: none;
+          border-bottom: 1px solid var(--rule);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <nav class="toc">
+        <h2>目次</h2>
+        <ol>
+          <li>
+            <a href="#overview">1. 概要</a>
+            <ol>
+              <li><a href="#overview-roles">1.1 ホスト・ロール・用語</a></li>
+            </ol>
+          </li>
+          <li>
+            <a href="#before">2. 評価の前に</a>
+            <ol>
+              <li><a href="#before-build">2.1 ビルドとインストール</a></li>
+              <li><a href="#before-network">2.2 ネットワークと時刻</a></li>
+              <li><a href="#before-sfu">2.3 SFU 認証情報</a></li>
+              <li><a href="#before-smoke">2.4 初回スモークテスト</a></li>
+              <li><a href="#before-plan">2.5 マトリクスの計画</a></li>
+              <li><a href="#before-network-choice">2.6 ネットワーク選択</a></li>
+              <li><a href="#before-checklist">2.7 事前チェックリスト</a></li>
+            </ol>
+          </li>
+          <li>
+            <a href="#during">3. 各セルの実行中</a>
+            <ol>
+              <li><a href="#during-recon">3.1 セルの再構成</a></li>
+              <li><a href="#during-runner">3.2 評価モジュール起動</a></li>
+              <li><a href="#during-speaker">3.3 スピーカー起動</a></li>
+              <li>
+                <a href="#during-listeners">3.4 リスナーボットユーザー起動</a>
+              </li>
+              <li><a href="#during-devices">3.5 実機の投入</a></li>
+              <li><a href="#during-monitor">3.6 監視</a></li>
+              <li><a href="#during-validate">3.7 検証とアーカイブ</a></li>
+            </ol>
+          </li>
+          <li><a href="#matrix">4. マトリクストラッカー</a></li>
+          <li><a href="#trouble">5. トラブルシューティング</a></li>
+          <li><a href="#after">6. 全セル完了後</a></li>
+          <li><a href="#refs">7. クイックリファレンス</a></li>
+          <li><a href="#notes">8. 補足とスコープ判断</a></li>
+        </ol>
+      </nav>
+
+      <main>
+        <h1>chutvrc 評価マニュアル</h1>
+        <p class="lead">
+          chutvrc の異なる構成間の性能評価を実施するための手順書。
+        </p>
+        <p class="meta">評価モジュールは <code>eval/</code> に格納。</p>
+
+        <h2 id="overview">1. 概要</h2>
+
+        <p>
+          本評価モジュールは計測のためのツールであり、実験を自動実行する仕組みではない。各
+          (ホスティング × SFU × N) セルは<strong>手動で選択</strong>し、chutvrc
+          を再構成したうえで、セルごとに 1
+          回評価モジュールを起動する。評価モジュールはブラウザエージェントからタイムスタンプを収集し
+          CSV に書き出す。
+        </p>
+
+        <p>
+          想定する評価範囲: クロス構成指標として
+          <strong>3 種類のホスティング環境 × 4 種類の SFU バックエンド</strong
+          >、加えてスケーラビリティ評価として
+          <strong>N = 5 / 10 / 20 / 40 / 80</strong>。稼働中の SFU
+          切替は今回<strong>対象外</strong>。
+        </p>
+
+        <div class="callout">
+          <strong>所要時間の見積もり</strong>
+          1 セル = 計測 5 分 + 準備・片付け 約 5 分。全マトリクス (SFU 1
+          種につき RQ1 が 12 セル + RQ2 が 5 セル) はホスティング環境 1
+          つあたり半日程度の手作業となる。スケジュールを確保すること。
+        </div>
+
+        <h3 id="overview-roles">1.1 ホスト・ロール・用語</h3>
+
+        <p>
+          評価モジュールには 3
+          種類のホストに加え、ブラウザエージェントが存在する。小規模評価では 1
+          台に統合してもよいし、複数台に分散することもできる。「どのコマンドをどこで実行するか」が最も多いトラブル原因のため、本マニュアル中のコマンド枠にはすべて実行先を明示する。
+        </p>
+
+        <table>
+          <tr>
+            <th>用語</th>
+            <th>定義</th>
+          </tr>
+          <tr>
+            <td><strong>chutvrc サーバ</strong></td>
+            <td>
+              reticulum、dialog、hubs-client、および SFU を稼働させるマシン
+              (または k8s クラスタ)。評価対象システム。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>評価モジュールホスト</strong></td>
+            <td>
+              <code>eval-runner</code> Docker
+              コンテナを稼働させるマシン。<strong>評価モジュール</strong>はポート
+              9099 で WebSocket
+              を待ち受け、各ブラウザエージェントから計測イベントを受信し、Dialog
+              および Docker/k8s からサーバ側統計をポーリングし、<code
+                >eval/results/</code
+              >
+              に CSV を書き出す Node プロセス。ホスト名/IP は
+              <code>EVAL_REPORT_HOST</code> で指定し、全参加者から WebSocket
+              で到達可能でなければならない。評価モジュール自体は chutvrc
+              のルームに<em>参加しない</em>。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>ボットユーザーホスト</strong></td>
+            <td>
+              <code>node scripts/bot/run-bot.js</code> を実行するマシン。1
+              回の呼び出しごとに Puppeteer 経由でヘッドレス Chrome
+              が起動し、通常のクライアントとして chutvrc
+              のルームに参加する。<code>EVAL_MODE=1</code>
+              を指定するとブラウザエージェントが有効になり、評価モジュールへ報告する。<code
+                >EVAL_SPEAKER=1</code
+              >
+              を指定すると音声レイテンシ計測用のチャープを送出する
+              (指定しなければパッシブリスナー)。ボットユーザーホストには
+              <code>npm install</code> 済みの
+              <code>services/hubs</code> と、チャープ WAV
+              へのローカルアクセスが必要。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>実機</strong></td>
+            <td>
+              ブラウザで評価モジュールが出力した参加 URL
+              を開いて参加するスマートフォン・タブレット・ノート
+              PC・HMD。インストール作業は不要で、chutvrc
+              と評価モジュールの両方にネットワーク的に到達できることのみが要件。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>参加者 / クライアント</strong></td>
+            <td>
+              ルームに参加して評価モジュールに報告する側
+              (ボットユーザーまたは実機)。評価モジュールは
+              <code>client_id</code> + <code>label</code> で識別する。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>ブラウザエージェント</strong></td>
+            <td>
+              chutvrc に組み込まれた小さな JS モジュール。<code>?eval=1</code>
+              付きでページが読み込まれた時のみ有効化される。評価モジュールと時刻同期したうえで、ポーズ・音声・RTC
+              統計をサンプリングし WebSocket で送出する。ボットユーザー
+              (Puppeteer 経由)
+              と実機は同一のブラウザエージェントコードを実行する。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>セル</strong></td>
+            <td>
+              1 回の評価モジュール起動で計測される 1 件の (ホスティング × SFU ×
+              N) 構成。1 セルにつき
+              <code>eval/results/&lt;run_id&gt;/</code> ディレクトリが 1
+              つ生成される。
+            </td>
+          </tr>
+          <tr>
+            <td><strong>スピーカー / リスナー</strong></td>
+            <td>
+              ブラウザエージェントの
+              <code>mode</code> パラメータで指定する参加者のロール。1
+              セルにつきちょうど 1 名が
+              <code>speaker</code> (マイクから音声レイテンシ計測用の 1 kHz
+              チャープを送出)、それ以外は全員 <code>passive</code> リスナー。
+            </td>
+          </tr>
+        </table>
+
+        <p>
+          <strong>推奨構成。</strong> 最もノイズの少ない計測を行うには<em
+            >マシン 2 台構成</em
+          >を推奨:
+        </p>
+        <ul>
+          <li>
+            <strong>マシン A:</strong> chutvrc
+            サーバ<em>と</em>評価モジュールホストを同一のマシンで走らせる。評価モジュールは受動的な
+            WebSocket 収集プロセスで軽量であり、chutvrc と同居させることで
+            <code>--host-stats docker</code> がリモート Docker
+            の認証なしでローカルのコンテナ統計を読める。
+          </li>
+          <li>
+            <strong>マシン B:</strong> ボットユーザーホスト —
+            スピーカーボットユーザーおよびリスナーボットユーザーを実行する。<strong
+              >chutvrc ホスト上でボットユーザーを動かしてはならない。</strong
+            >
+            同居させると (a) chutvrc と CPU/メモリを取り合って
+            <code>host.csv</code> を汚染する、(b) chutvrc との通信が localhost /
+            Docker ブリッジ経由になり、実クライアントの経路を反映しなくなる、(c)
+            評価モジュールとカーネルクロックを共有してしまうため時刻同期が見かけ上完璧に揃い、クライアント間レイテンシの計算にバイアスがかかる、という問題が発生する。
+          </li>
+        </ul>
+        <p>
+          すべてを 1 台にまとめてよいのは初回スモークテスト (§2.4)
+          のみで、計測本番のセルでは行わないこと。N ≥ 40
+          ではボットユーザーホストが複数必要になるので §3.4
+          の補足を参照。理想的にはスピーカー専用のボットユーザーホストを 1
+          台確保し、リスナーボットユーザーの CPU 負荷で chirp-emit
+          のタイムスタンプがぶれないようにする。実機は上記いずれとも別のハードウェア。
+        </p>
+
+        <p>
+          <strong>コマンド枠のタグ。</strong>
+          本マニュアルの全コマンド枠には実行先を明示する:
+        </p>
+        <ul>
+          <li>
+            <span class="runs-on">実行先: 評価モジュールホスト</span> —
+            eval-runner Docker コンテナを稼働させるマシン。
+          </li>
+          <li>
+            <span class="runs-on bot">実行先: ボットユーザーホスト</span> —
+            <code>run-bot.js</code> を起動するすべてのマシン。
+          </li>
+          <li>
+            <span class="runs-on any">実行先: 任意のホスト</span> —
+            どこかでファイルを生成するだけの一度限りのセットアップ。生成物は必要な場所にコピーすればよい。
+          </li>
+        </ul>
+        <p>
+          実機 (スマートフォン/タブレット/HMD)
+          ではこれらのコマンドを実行しない。実機の役割はブラウザで URL
+          を開くことのみである。
+        </p>
+
+        <h2 id="before">2. 評価の前に</h2>
+
+        <h3 id="before-build">2.1 ビルドとインストール</h3>
+
+        <p>
+          以下の各コマンドは特定のホストロールを対象とする。ハーネスを含む
+          <code>chutvrc-hubs-compose</code>
+          をクリーンな状態でクローンしたところから始める:
+        </p>
+
+        <h4>
+          スピーカーボットユーザー用のサイレント・キャリア WAV を生成 (一度のみ)
+        </h4>
+        <div class="runs-on any">実行先: 任意のホスト</div>
+        <pre><code>node eval/assets/generate-chirp.js</code></pre>
+        <p>
+          <code>eval/assets/chirp-loop.wav</code>
+          を生成する。スピーカーボットユーザーが動作するマシン (<code>-a</code>
+          で指定)
+          にこのファイルが必要。生成したマシンとは別のボットユーザーホストを使うなら、WAV
+          をコピーするかそのマシンでスクリプトを再実行する。
+        </p>
+
+        <h4>eval-runner Docker イメージのビルド</h4>
+        <div class="runs-on">実行先: 評価モジュールホスト</div>
+        <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml build eval-runner</code></pre>
+        <p>
+          1 回ビルドすれば十分。<code>eval/runner/</code>
+          配下のファイルが変わった時のみ再ビルドする。
+        </p>
+
+        <h4>ボットユーザーの Puppeteer インストールを検証</h4>
+        <div class="runs-on bot">実行先: すべてのボットユーザーホスト</div>
+        <pre><code>cd services/hubs/scripts/bot &amp;&amp; npm install &amp;&amp; node run-bot.js --help &amp;&amp; cd -</code></pre>
+        <p>
+          <code>run-bot.js</code> を起動するすべてのマシンで実行する (高 N
+          でボットユーザーを複数台に分散する場合は各マシンで実行)。Puppeteer の
+          Chromium ダウンロードがブロックされる環境では
+          <code>PUPPETEER_DOWNLOAD_HOST</code> を設定するか、別途 Chromium
+          をインストールして Puppeteer から参照させる。Puppeteer
+          のセットアップが成功していることが、ボットユーザー実行の前提条件となる。
+        </p>
+
+        <h3 id="before-network">2.2 ネットワークと時刻</h3>
+
+        <ul class="checklist">
+          <li>
+            評価モジュールの設置場所を決める。すべての参加者
+            (実機・ボットユーザーホスト) から WebSocket
+            で到達可能でなければならない。LAN 上なら評価モジュールホストの LAN
+            IP もしくは mDNS 名
+            (<code>hubs.local</code>)。公衆インターネット経由ならリバースプロキシ
+            + TLS 証明書を介する。
+          </li>
+          <li>
+            <code>.env</code> に
+            <code>EVAL_REPORT_HOST=<em>&lt;ホスト名または IP&gt;</em></code>
+            を設定。compose ファイルがこれを使って参加 URL を組み立てる。
+          </li>
+          <li>
+            計測に関わるすべてのホスト
+            (評価モジュール、ボットユーザーホスト、できれば chutvrc サーバも) で
+            NTP/chrony が動作していることを確認。LAN ではミリ秒未満、WAN でも 10
+            ms 未満であれば通常は許容範囲。実際の精度は <code>run.json</code> の
+            clock-sync CI で確認できる。
+          </li>
+          <li>
+            LAN 上のスマートフォン/タブレット/HMD のブラウザから評価モジュールの
+            WS ポート (デフォルト <code>9099</code>)
+            に到達できることを確認。ファイアウォールを開けておく。
+          </li>
+        </ul>
+
+        <h3 id="before-sfu">2.3 SFU 認証情報 (Dialog 以外を計測する場合)</h3>
+
+        <ul class="checklist">
+          <li>
+            <code>eval/.env.local</code> (gitignore 対象) を作成し、Dialog
+            以外の各 SFU の認証情報を記載 (LiveKit API key/secret、Sora
+            署名鍵、Cloudflare Realtime app ID + secret)。
+          </li>
+          <li>
+            同じ認証情報を管理パネルから reticulum の
+            <code>webrtc-settings</code>
+            にも反映する。稼働中のサーバが実際に参照するのはこちら。
+          </li>
+          <li>
+            計測前に、各 SFU で手動でテストルームを開き、2
+            つの通常ブラウザ間で音声・映像が流れることを確認する。ハーネスは「観測される状態」をそのまま計測するため、バックエンド設定に誤りがあると、形式上は妥当でも意味のないデータが出力されてしまう。
+          </li>
+        </ul>
+
+        <div class="callout warn">
+          <strong>課金リスク</strong>
+          Sora と Cloudflare Realtime は従量課金。N=80
+          までスケールする前に各管理コンソールでレート制限と予算を確認すること。評価モジュールは
+          Dialog 以外のセルで
+          <code>EVAL_ALLOW_BILLING=1</code>
+          を要求するが、最終的な歯止めは人間の注意である。
+        </div>
+
+        <h3 id="before-smoke">
+          2.4 初回スモークテスト (ラップトップで一度だけ実施)
+        </h3>
+
+        <p>実セルに着手する前に、全経路をエンドツーエンドで確認する。</p>
+
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>使い捨てのターミナルで評価モジュールを起動</h3>
+            <div class="runs-on">実行先: 評価モジュールホスト</div>
+            <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
+  run --rm --service-ports eval-runner start \
+    --label smoke \
+    --room https://hubs.local:4000/<em>&lt;any-test-room-sid&gt;</em> \
+    --duration 90s \
+    --dialog-url http://dialog:7001 \
+    --host-stats docker \
+    --public-url wss://${EVAL_REPORT_HOST:-hubs.local}:9099</code></pre>
+            <p>
+              評価モジュールが eval ブラウザエージェント用クエリ付きの参加 URL
+              を出力する。<code>--room</code> の 4000
+              番はローカル開発用 hubs フロントエンドのポート。TLS
+              で公開された hubs を使う場合はその URL
+              (通常 443、省略可) に置き換える。<code>--public-url</code>
+              の 9099 番は評価モジュール側の報告 WebSocket
+              ポートで、hubs のホスティング形態にかかわらず常に 9099。
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>出力された URL をラップトップのブラウザで開く</h3>
+            <p>
+              出力された URL には <code>&amp;label=&lt;device&gt;</code>
+              が含まれているので、<code>&lt;device&gt;</code> を
+              <code>laptop-self</code> に置き換える。DevTools
+              のコンソールを開く。約 10 秒以内に次の行が出るはず:
+            </p>
+            <pre><code>[eval] probe enabled mode=passive label=laptop-self report=wss://…
+[eval] clock synced offset=…ms ±…ms</code></pre>
+            <p>
+              clock synced 行が現れないなら、WebSocket
+              が評価モジュールに到達していない
+              (ファイアウォール、ホスト名の誤り、TLS
+              なし等)。先に進む前に解決すること。
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>評価モジュール終了を待ち、CSV を確認</h3>
+            <p>
+              90 秒後に評価モジュールが
+              <code>[runner] aggregator wrote CSVs to …</code>
+              を出力する。そのディレクトリ内で:
+            </p>
+            <ul>
+              <li>
+                <code>run.json</code> にクライアント 1 件が記載され、<code
+                  >clock_ci_ms</code
+                >
+                &lt; 5 であること。
+              </li>
+              <li>
+                <code>probe-events.csv</code> に <code>rtc-stats</code> 行
+                (ラップトップ自身の PC 統計) が含まれていること。
+              </li>
+              <li>
+                他の CSV はピアもチャープもないため空でよい —
+                単独参加のスモークでは想定どおり。
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <h3>スピーカーボットユーザーを加えた 2 クライアントスモーク</h3>
+            <p>
+              <strong>起動順が重要:</strong>
+              評価モジュール (報告 WS) を<em>先</em>に立ち上げ、その後にボット、最後にラップトップのブラウザを開く。ボットのプローブはページロード時に
+              WS を一度開きにいくだけで、失敗してもリトライしない。
+            </p>
+            <p>
+              評価モジュールホストの 1 ウィンドウで評価モジュールを起動 (手順 1
+              と同じコマンド)。ボットユーザーホストの別ウィンドウで同じルームを向いたスピーカーボットユーザーを起動:
+            </p>
+            <div class="runs-on bot">実行先: ボットユーザーホスト</div>
+            <pre><code>cd services/hubs
+EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
+EVAL_REPORT_WS_URL=wss://${EVAL_REPORT_HOST:-hubs.local}:9099 \
+node scripts/bot/run-bot.js \
+  -o ${HUBS_HOST:-hubs.local:8080} \
+  -r <em>&lt;room-sid&gt;</em> \
+  -a ../../eval/assets/chirp-loop.wav</code></pre>
+            <p>
+              <code>-o</code> は <code>/hub.html</code> を配信するホストの
+              hubs オリジンを<em>ポート込み</em>で渡す
+              (ボットは URL を <code>https://&lt;host&gt;/hub.html</code>
+              として組み立てる)。docker-compose
+              の開発スタックでは <strong>8080 番 (hubs-client の webpack
+              dev server)</strong>であり、4000 番 (reticulum,
+              ルーム SID URL はブラウザに返すが
+              <code>/hub.html</code> は 404) ではない。ローカル開発では
+              <code>-o hubs.local:8080</code> (もしくは
+              <code>export HUBS_HOST=hubs.local:8080</code>) を指定する。デプロイ環境では
+              <code>/hub.html</code> とルーム SID
+              ルートを両方配信する単一オリジンを指定する。
+            </p>
+            <p>
+              ラップトップのブラウザから
+              <code
+                >?eval=1&amp;mode=passive&amp;label=laptop-self&amp;report=…</code
+              >
+              で同じルームに参加する。<strong>ルームページで少なくとも 1
+              度クリックする</strong>こと
+              (ロビーや入室手順自体にクリックが含まれていればそれで足りる)
+              — Chrome の自動再生ポリシーにより、最初のユーザージェスチャまで
+              チャープ検出器の <code>AudioContext</code>
+              は <code>suspended</code> 状態のままで、URL
+              を開いて放置するだけのタブでは
+              <code>chirp-detect = 0</code> になる。実行後、
+              <code>probe-events.csv</code> の <code>laptop-self|chirp-detect</code>
+              行と <code>chirp-pairs.csv</code>
+              の両方に行があれば成功。空ならチャープの送受信経路に問題があるので
+              <a href="#trouble">§5 トラブルシューティング</a>
+              を参照してから続行。
+            </p>
+            <p>実行中の簡易確認 (ラップトップのタブの DevTools コンソールで、ランナーがまだカウントダウン中に実行):</p>
+            <pre><code>__eval.patcher._detector._ctx.state              // expect "running"
+__eval.patcher._detector._activeDetectors.size   // expect &gt;= 1 (リモート音声ピアの数)</code></pre>
+          </div>
+        </div>
+
+        <h3 id="before-plan">2.5 マトリクスの計画</h3>
+
+        <p>
+          開始前にすべてのセルとそのラベルを決めておく。一貫したラベル体系を用意しておくと事後集計が容易になる。推奨方式:
+        </p>
+
+        <pre><code>&lt;hosting&gt;+&lt;sfu&gt;+N&lt;count&gt;[+&lt;variant&gt;]
+例:
+  laptop+dialog+N10
+  server+livekit+N40
+  cloud+sora+N20+devices
+  cloud+cloudflare+N80+bots-only</code></pre>
+
+        <p>
+          計測開始前に
+          <a href="#matrix">§4</a> のマトリクストラッカーを埋めておく。
+        </p>
+
+        <h3 id="before-network-choice">2.6 ネットワーク選択 (方法論的注記)</h3>
+
+        <p>
+          ネットワークはマトリクスの制御軸ではないため、暗黙の定数として扱う:
+        </p>
+
+        <ol>
+          <li>
+            <strong
+              >1 セル 1 ネットワーク、全参加者を同一ネットワーク上に</strong
+            >
+            (ボットユーザー・実機・評価モジュール)。ネットワークを混在させると 1
+            行のレイテンシに複数の経路が混ざり、セル間の差を変化させた軸だけに帰属できなくなる。多くの
+            SFU
+            は最も品質の低いクライアントに合わせて適応するため、クライアント単位の切り分けも交絡したまま残る。
+          </li>
+          <li>
+            <strong>全マトリクスセルで同一ネットワーク</strong
+            >を使う。利用可能な中で最も安定したもの (通常はキャンパス所属者向け
+            LAN) を選ぶ。ゲスト WiFi は UDP/STUN/TURN がしばしば遮断され WebRTC
+            を破綻させるので避ける。
+          </li>
+        </ol>
+
+        <div class="callout">
+          <strong>現実性 vs. 制御性。</strong> 単一 LAN
+          上で取得した制御マトリクスはベストケースの値であり、地理的に分散した実運用環境を反映していない。主マトリクスに混ぜるのではなく、別途<strong
+            >実環境セルを 1〜2 件</strong
+          >
+          (主にクラウドホスティング環境向けに) 追加し、参加者を自宅 / キャンパス
+          /
+          ゲスト網に分散させて実施し、結果は別個に報告する。厳密な均等配分ではなく代表性のあるカバレッジを目指す。デバイスはネットワーク別にラベル付けしておくと
+          (<code>mac-home-1</code>, <code>iphone-campus-2</code> 等)、事後に
+          <code>pose-pairs.csv</code> を <code>home↔home</code>,
+          <code>home↔campus</code> 等のサブセットに切り分けられる。
+        </div>
+
+        <p>
+          <strong>セル内の運用ルール:</strong> 全参加者が chutvrc
+          と評価モジュールの双方に到達できること
+          (同一ネットワーク内のセルなら公開 DNS/TLS/VPN
+          構成は不要)。有線可能なホストは Ethernet
+          優先。バックグラウンド負荷の変動を避けるため、セル群はなるべく短時間内にまとめて実行する。
+        </p>
+
+        <p>
+          <strong>セルごとに記録する事項</strong>
+          (マトリクスのメモまたはラベル接尾辞 — <code>+campus</code>,
+          <code>+home</code>, <code>+mixed</code>):
+          クライアントのネットワーク、媒体構成、時間帯。
+        </p>
+
+        <p>
+          <strong>ネットワークごとに記録する事項</strong> (1
+          度のみ、アイドル状態で、そのネットワーク上で計測セルを開始する前に —
+          レイテンシ値の解釈に用いる):
+        </p>
+
+        <table>
+          <tr>
+            <th>項目</th>
+            <th>取得方法</th>
+          </tr>
+          <tr>
+            <td>名称 / 媒体 / リンク規格</td>
+            <td>
+              SSID と WiFi 規格 (例: <code>campus-eduroam, 802.11ax 5GHz</code>)
+              または有線リンク速度。macOS:
+              <code>system_profiler SPAirPortDataType</code>。Linux:
+              <code>nmcli dev wifi</code>, <code>ethtool eth0</code>。
+            </td>
+          </tr>
+          <tr>
+            <td>
+              chutvrc と評価モジュールへのベースライン RTT (平均 / 最小 / 最大 /
+              標準偏差)
+            </td>
+            <td><code>ping -c 30 &lt;host&gt;</code></td>
+          </tr>
+          <tr>
+            <td>経路 + ホップごとのロス</td>
+            <td>
+              <code>mtr -rwc 30 &lt;chutvrc-host&gt;</code> (もしくは
+              <code>traceroute</code>)
+            </td>
+          </tr>
+          <tr>
+            <td>上り / 下り スループット</td>
+            <td>
+              両端を管理できるなら
+              <code>iperf3 -c &lt;server&gt;</code>。できないなら
+              <code>speedtest-cli</code> で概算。
+            </td>
+          </tr>
+          <tr>
+            <td>UDP 許可 (+ ジッタ・ロス)</td>
+            <td>
+              <code>iperf3 -c &lt;server&gt; -u -b 5M</code>。UDP が遮断されると
+              WebRTC は TURN-over-TCP
+              にフォールバックしレイテンシが大幅に増えるため、その旨を明確に記録する。
+            </td>
+          </tr>
+          <tr>
+            <td>STUN / TURN 到達性 + NAT タイプ</td>
+            <td>
+              <code
+                >https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/</code
+              >
+              を開き、<code>srflx</code> (STUN) と <code>relay</code> (TURN)
+              の候補が現れることを確認。
+            </td>
+          </tr>
+          <tr>
+            <td>外向きパブリック IP / ISP / 概略の地理的位置</td>
+            <td>
+              <code>curl ifconfig.me</code> で IP を取得し、<code
+                >ipinfo.io/&lt;ip&gt;</code
+              >
+              等で ISP と位置を調べる。
+            </td>
+          </tr>
+        </table>
+
+        <p>
+          実行中のストリーム単位 RTT・ジッタ・パケットロスは
+          <code>rtc-stats.csv</code>
+          に自動記録される。上記のアイドル時の計測は「SFU
+          が遅い」のか「このネットワークが遅い」のかを切り分けるためのもの。
+        </p>
+
+        <p>
+          <strong>報告書では制約として明記する</strong>:
+          マトリクスセルはネットワーク制御下での計測 (レイテンシの下限を与える)
+          であり、実環境セルが現実的な範囲を示し、本番性能は各ユーザの経路に依存する。
+        </p>
+
+        <h3 id="before-checklist">2.7 事前チェックリスト (印刷してチェック)</h3>
+
+        <ul class="checklist">
+          <li>
+            <code>eval/assets/chirp-loop.wav</code> が存在する (<code
+              >node eval/assets/generate-chirp.js</code
+            >
+            で生成)。
+          </li>
+          <li>
+            <code>chutvrc-eval-runner</code> Docker イメージがビルド済み (<code
+              >docker compose --profile eval … build eval-runner</code
+            >)。
+          </li>
+          <li>
+            ボットユーザーの Puppeteer インストールが正常に動作する (<code
+              >node scripts/bot/run-bot.js --help</code
+            >
+            が終了コード 0)。
+          </li>
+          <li>
+            <code>EVAL_REPORT_HOST</code> を
+            <code>.env</code> に設定済みで、全参加者デバイスから到達可能。
+          </li>
+          <li>
+            評価モジュールホスト・ボットユーザーホストで NTP/chrony
+            が稼働している。
+          </li>
+          <li>
+            マトリクスに含まれる各ホスティング環境について chutvrc
+            のデプロイ手順を確認・テスト済み (セル種別ごとの詳細は §3.1
+            を参照)。
+          </li>
+          <li>
+            Dialog 以外の SFU を扱う場合:
+            <code>eval/.env.local</code>
+            と管理パネルの両方に認証情報を設定済みで、2
+            ブラウザでの手動疎通テストに通過済み。
+          </li>
+          <li>
+            単独参加のスモークで生成された <code>run.json</code> の clock-CI が
+            5 ms 未満。
+          </li>
+          <li>
+            2 クライアントスモーク (スピーカーボットユーザー + ラップトップ) で
+            <code>chirp-pairs.csv</code> が空でない。
+          </li>
+          <li>
+            マトリクストラッカー記入済み:
+            全セルにラベルが付き、ラベルは全件で一意。
+          </li>
+          <li>
+            最大 N に必要なボットユーザーホスト容量を確保 (ヘッドレス Chrome 1
+            個あたり約 250 MB のメモリ)。
+          </li>
+          <li>
+            計測中、評価モジュール側 LAN に大きな同時転送等の負荷がないこと。
+          </li>
+          <li>
+            計測ごとに 5 分のタイマー (もしくは <code>--duration</code>)
+            を用意。
+          </li>
+        </ul>
+
+        <h2 id="during">3. 各セルの実行中</h2>
+
+        <p>
+          マトリクスの全セルでこの手順を繰り返す。1 セルあたり手作業で約 10
+          分かかる。
+        </p>
+
+        <h3 id="during-recon">3.1 セルの再構成 (手動)</h3>
+
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h4>ホスティング / デプロイ</h4>
+            <p>
+              セル種別に応じたデプロイ経路 (下表) で対象ホストに chutvrc
+              を立ち上げる。動作確認:
+              通常のブラウザで通常のルームに参加し、マイクとポーズが機能していること。これはハーネス側で検証する事項ではない。デプロイそのものの動作が確認できるまで、ハーネスの出力を信用しないこと。
+            </p>
+
+            <table>
+              <tr>
+                <th>セル種別</th>
+                <th>必要なセットアップ</th>
+                <th>参照ドキュメント</th>
+              </tr>
+              <tr>
+                <td><code>laptop+*</code></td>
+                <td>ローカルホスト上で docker-compose</td>
+                <td>
+                  <code>MANUAL_SETUP.md</code>、<code>SSL_SETUP.md</code>、<code
+                    >start-{linux,mac,windows}.{sh,command,bat}</code
+                  >
+                </td>
+              </tr>
+              <tr>
+                <td><code>server+*</code></td>
+                <td>オンプレ Linux サーバ上で docker-compose</td>
+                <td><code>MANUAL_SETUP.md</code>、<code>SSL_SETUP.md</code></td>
+              </tr>
+              <tr>
+                <td><code>cloud+*</code> (compose)</td>
+                <td>クラウド VM 上で docker-compose</td>
+                <td><code>MANUAL_SETUP.md</code>、<code>SSL_SETUP.md</code></td>
+              </tr>
+              <tr>
+                <td><code>cloud+*+k8s</code></td>
+                <td>
+                  k8s クラスタ (例: AKS) にマニフェストをデプロイ、Ingress +
+                  TLS、dialog Pod を
+                  <code>hostNetwork</code> 有効かつノードの公開 IP に一致する
+                  <code>ANNOUNCED_IP</code> で起動
+                </td>
+                <td>
+                  <code>k8s/docs/OVERVIEW.md</code
+                  >、<code>k8s/docs/BUILD_AND_DEPLOY.md</code>、<code
+                    >k8s/docs/COTURN_WEBRTC_FIX_PLAN.md</code
+                  >
+                </td>
+              </tr>
+            </table>
+
+            <p>
+              2 つのデプロイ経路の比較と推奨されるセル配置については
+              <code>eval/docs/deployment-comparison.md</code> を参照。
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h4>SFU</h4>
+            <p>
+              管理パネル (<code>https://&lt;admin-host&gt;:8989</code>)
+              で対象ルームを開き、SFU フィールドを次のいずれかに設定:
+            </p>
+            <ul>
+              <li><code>0</code> Dialog</li>
+              <li><code>1</code> Sora</li>
+              <li><code>2</code> LiveKit</li>
+              <li><code>3</code> Cloudflare Realtime</li>
+            </ul>
+            <p>
+              ブラウザ 1 つで参加し、DevTools の Network タブで期待する SFU の
+              WebSocket/HTTP 通信が流れていることを確認する。SFU
+              が誤っていれば計測結果は無意味になる。
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h4>ルーム状態のリセット</h4>
+            <p>
+              前回のランで残ったままになっている参加者をすべてキックする。評価モジュールはそれらのデータを集計対象には含めないが、残っていると
+              SFU
+              負荷を歪める。管理パネルのキック操作を使うか、ルームを削除して再作成する。
+            </p>
+          </div>
+        </div>
+
+        <h3 id="during-runner">3.2 評価モジュール起動</h3>
+
+        <div class="runs-on">実行先: 評価モジュールホスト</div>
+        <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml \
+  run --rm --service-ports eval-runner start \
+    --label "<em>laptop+dialog+N40</em>" \
+    --room "https://<em>${HUBS_HOST}</em>/<em>&lt;room-sid&gt;</em>" \
+    --duration 5m \
+    --dialog-url http://dialog:7001 \
+    --host-stats docker \
+    --public-url "wss://${EVAL_REPORT_HOST}:9099"</code></pre>
+
+        <p>
+          評価モジュールはターミナルに接続したまま動作し続ける。出力された参加
+          URL をコピーする。5
+          分タイマーは<em>この時点</em>から開始するため、手早く次の作業に進む。
+        </p>
+
+        <div class="callout warn">
+          <strong>評価モジュールが起動しないとき</strong>
+          よくある原因は次の 2 つ: ポート 9099 が使用中
+          (前回の評価モジュールが正常終了していない)、または EVAL
+          プロファイルが有効化されていない。<code>docker ps</code>
+          で確認し、必要なら
+          <code>docker compose --profile eval … down</code> で解消する。
+        </div>
+
+        <h3 id="during-speaker">3.3 スピーカー起動</h3>
+
+        <p>
+          次のいずれか<strong>1 つだけ</strong>を選ぶ: スピーカーボットユーザー
+          1 台、または実機スピーカー 1
+          台。複数のスピーカーを同時に動かすのは不可 —
+          複数音源からのチャープは識別できない。
+        </p>
+
+        <h4>
+          オプション A — スピーカーボットユーザー
+          (ノイズの少ないセルにはこちらを推奨)
+        </h4>
+
+        <div class="runs-on bot">
+          実行先: ボットユーザーホスト — chutvrc /
+          評価モジュールホストとは別のマシン
+        </div>
+        <pre><code>cd services/hubs
+EVAL_MODE=1 EVAL_LABEL=bot-speaker EVAL_SPEAKER=1 \
+EVAL_REPORT_WS_URL="wss://${EVAL_REPORT_HOST}:9099" \
+node scripts/bot/run-bot.js \
+  -o "${HUBS_HOST}" \
+  -r "<em>&lt;room-sid&gt;</em>" \
+  -a ../../eval/assets/chirp-loop.wav &amp;</code></pre>
+
+        <div class="callout warn">
+          <strong
+            >スピーカーボットユーザーを chutvrc /
+            評価モジュールホスト上で起動しないこと。</strong
+          >
+          同居させると (i) <code>host.csv</code> がボットユーザーの CPU/メモリを
+          chutvrc 側の負荷として計測してしまい、(ii) ボットユーザーの WebRTC
+          通信が localhost
+          を経由することになり、実クライアントの経路を反映しなくなり、(iii)
+          評価モジュールとカーネルクロックを共有することで時刻同期が見かけ上完璧に揃ってしまい、全クライアント間のレイテンシにバイアスがかかる。必ず別マシンを使うこと
+          — ボットユーザー 1 台ならラップトップで十分 (約 250 MB のメモリ)。N ≥
+          40 ではスピーカー専用のボットユーザーホストを 1
+          台割り当て、リスナーボットユーザーによる CPU 負荷で
+          <code>chirp-emit</code> のタイムスタンプが遅れないようにする。
+        </div>
+
+        <h4>オプション B — 実機スピーカー</h4>
+
+        <p>
+          スピーカー用デバイス
+          (スマートフォン/ラップトップ等の実機。上記コマンドを実行したホスト<em>とは別のもの</em>)
+          で評価モジュールの参加 URL を開き、<code>&amp;mode=passive</code> を
+          <code>&amp;mode=speaker</code> に、<code
+            >&amp;label=&lt;device&gt;</code
+          >
+          を一意なスピーカータグ (例: <code>&amp;label=speaker-laptop</code>)
+          に書き換える。モバイル autoplay
+          の制限を解除するため、ページを一度タップ/クリックする。
+        </p>
+
+        <h3 id="during-listeners">
+          3.4 リスナーボットユーザー起動 (実機の数だけで N に届かない場合のみ)
+        </h3>
+
+        <div class="runs-on bot">
+          実行先: ボットユーザーホスト (N ≥ 40 では複数台に分散)
+        </div>
+        <pre><code>cd services/hubs
+# 数を調整して目標 N に到達させる。
+for i in $(seq 1 <em>39</em>); do
+  EVAL_MODE=1 EVAL_LABEL="bot-listener-$i" \
+  EVAL_REPORT_WS_URL="wss://${EVAL_REPORT_HOST}:9099" \
+  node scripts/bot/run-bot.js \
+    -o "${HUBS_HOST}" \
+    -r "<em>&lt;room-sid&gt;</em>" \
+    -a ../../eval/assets/chirp-loop.wav &amp;
+done</code></pre>
+
+        <p>
+          全ボットユーザーの参加完了まで約 30
+          秒待つ。評価モジュールは各ボットユーザーについて
+          <code>[runner] hello client_id=… label=bot-listener-N</code>
+          を出力する。起動したボットユーザー数より hello
+          の数が少なければ起動に失敗したものがあるので、ボットユーザー側のターミナル出力を確認する。
+        </p>
+
+        <div class="callout">
+          <strong>複数ホストへのボットユーザー分散</strong>
+          N≥40 では 1 台ではメモリが不足しがち。SSH で 2
+          台目に接続し、同じ環境変数のまま同じループを実行する。評価モジュールは
+          <code>client_id</code> +
+          <code>label</code> で対応付けるので、それ以外に変更は不要。
+        </div>
+
+        <h3 id="during-devices">3.5 実機の投入</h3>
+
+        <p>各デバイスで以下を行う:</p>
+        <ol>
+          <li>QR を読み取るか、評価モジュールの参加 URL を開く。</li>
+          <li>
+            URL バーで
+            <code>&amp;label=&lt;device&gt;</code> を一意のタグに書き換える (例:
+            <code>quest3-haru</code>, <code>ipad-2-tabA</code>,
+            <code>macbook-3-tabB</code>)。タブごとに異なるラベルを付ける。
+          </li>
+          <li>
+            ページを 1 度タップ/クリックして音声再生のブロックを解除する。
+          </li>
+          <li>
+            デバイスのブラウザコンソール (または評価モジュール側ターミナル)
+            でブラウザエージェントが
+            <code>[eval] clock synced</code> を出力していることを確認する。
+          </li>
+        </ol>
+
+        <h3 id="during-monitor">3.6 実行中の監視</h3>
+
+        <p>実行中は以下を見守る:</p>
+        <ul>
+          <li>
+            <strong>評価モジュール側ターミナル</strong> —
+            接続・切断がすべて想定通りであること。実行途中の切断は、多くの場合ボットユーザーのメモリ不足が原因。
+          </li>
+          <li>
+            <strong>代表的なリスナー 1 台のコンソール</strong> — 約 30 秒ごとに
+            <code>[eval] clock re-validated</code>
+            が出続け、エラーが頻発していないこと。
+          </li>
+          <li>
+            <strong>chutvrc デプロイ全体の健全性</strong> — dialog/reticulum
+            コンテナが OOM-kill や再起動を起こしていないこと。<code
+              >docker stats</code
+            >
+            または <code>kubectl top pods</code> で確認。
+          </li>
+        </ul>
+
+        <p>
+          実行中に
+          chutvrc・ネットワーク・他クライアントの設定を<strong>変更しない</strong>。途中で再構成するとそのセルは無効になる。異常があればメモを取る。
+        </p>
+
+        <h3 id="during-validate">3.7 検証とアーカイブ</h3>
+
+        <p>
+          評価モジュール終了直後に
+          <code>eval/results/&lt;run_id&gt;/</code> を確認する:
+        </p>
+
+        <div class="verify-block">
+          <h4>セルごとの検証 (次セルを開始する前に実施)</h4>
+          <ul class="checklist">
+            <li>
+              <code>run.json</code> が存在し、<code>clients</code> 配列の長さが
+              (スピーカー + リスナー + 実機)
+              の合計と一致していること。欠けていればその参加者のデータが評価モジュールに届いていない。
+            </li>
+            <li>
+              <code>clients</code> 内の全エントリで
+              <code>clock_ci_ms</code> &lt; 5。これより CI
+              が悪いセルは破棄を検討する。
+            </li>
+            <li>
+              どのエントリも
+              <code>warnings</code> 配列が空であること。最も頻出する警告は "more
+              than one mode=speaker" —
+              これが出ていればそのセルのデータは汚染されているため再実行する。
+            </li>
+            <li>
+              <code>pose-pairs.csv</code> の行数は N × (N−1) × 4 × 67 ×
+              duration_sec × sample_rate に近くなるはず。5 分 N=10 dialog
+              セル、sample_rate=1 で約 720,000 行。桁が合っていれば許容範囲。
+            </li>
+            <li>
+              <code>chirp-pairs.csv</code> の行数は (リスナー数) × (duration_sec
+              / 1.5) 前後。期待値の 50 %
+              未満なら、一部のリスナーがスピーカーの音を拾えていない可能性があるため、結果を信頼する前に調査する。
+            </li>
+            <li>
+              <code>host.csv</code> に少なくとも <code>dialog</code> と
+              <code>reticulum</code> (またはそれに相当するコンテナ)
+              の行があること。空なら
+              <code>--host-stats</code> の指定が誤っている。
+            </li>
+          </ul>
+        </div>
+
+        <p>
+          結果ディレクトリは必要に応じてリネームする (デフォルトの
+          <code>&lt;ISO-タイムスタンプ&gt;_&lt;label&gt;</code>
+          でも内容を把握しやすい)。アーカイブ保管先にコピーまたは移動する — この
+          CSV 群は以後の分析・レポートの一次データである。
+        </p>
+
+        <p>マトリクストラッカー (§4) に run_id、CI、メモを追記する。</p>
+
+        <h2 id="matrix">4. マトリクストラッカー</h2>
+
+        <p>
+          計測開始前に埋めておき、セル完了ごとにチェックを入れる。この表はノートや表計算ソフトに転記しておく
+          — データ取得前に確定させておくセル一覧である。
+        </p>
+
+        <div class="matrix-row header">
+          <div>完了</div>
+          <div>ラベル</div>
+          <div>セル (ホスティング + SFU + N)</div>
+          <div>スピーカー</div>
+          <div>Clock CI</div>
+          <div>run_id</div>
+        </div>
+
+        <!-- 以下はテンプレート。必要に応じて行を増やす。 -->
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>laptop+dialog+N5</div>
+          <div>laptop / Dialog / 5</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>laptop+dialog+N10</div>
+          <div>laptop / Dialog / 10</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>laptop+dialog+N20</div>
+          <div>laptop / Dialog / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>laptop+dialog+N40</div>
+          <div>laptop / Dialog / 40</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>laptop+dialog+N80</div>
+          <div>laptop / Dialog / 80</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>server+dialog+N20</div>
+          <div>on-prem server / Dialog / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>server+livekit+N20</div>
+          <div>on-prem server / LiveKit / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>server+sora+N20</div>
+          <div>on-prem server / Sora / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>server+cloudflare+N20</div>
+          <div>on-prem server / Cloudflare / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>cloud+dialog+N20</div>
+          <div>cloud VM / Dialog / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>cloud+livekit+N20</div>
+          <div>cloud VM / LiveKit / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>cloud+sora+N20</div>
+          <div>cloud VM / Sora / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+        <div class="matrix-row">
+          <div>☐</div>
+          <div>cloud+cloudflare+N20</div>
+          <div>cloud VM / Cloudflare / 20</div>
+          <div>ボットユーザー</div>
+          <div>___ ms</div>
+          <div>______</div>
+        </div>
+
+        <p style="font-size: 13.5px; color: var(--muted); margin-top: 12px">
+          実機セル (<code>+devices</code> 接尾辞)
+          は、用意できるデバイス数に応じた N
+          で追加する。正式なマトリクスには必須ではないが、現実のデバイスごとの挙動を把握するのに有用。
+        </p>
+
+        <h2 id="trouble">5. トラブルシューティング</h2>
+
+        <h3>ブラウザエージェントが "clock synced" を出さない</h3>
+        <p>
+          ブラウザエージェントは読み込まれているが評価モジュールに到達できていない。考えられる原因
+          (可能性の高い順):
+        </p>
+        <ul>
+          <li>
+            <code>&amp;report=</code> URL が誤っている。評価モジュールが出力した
+            URL と照合する。
+          </li>
+          <li>
+            Mixed-content ブロック: <code>https://</code> ページからは
+            <code>wss://</code> しか開けず、<code>http://</code> ページからは
+            <code>ws://</code> しか開けない。TLS は全部か全くなしで揃える。eval-runner
+            は起動時に <code>EVAL_TLS_CERT</code> / <code>EVAL_TLS_KEY</code>
+            を読み、<code>docker-compose.eval.yml</code> でデフォルトは
+            <code>/certs/cert.pem</code> + <code>/certs/key.pem</code>
+            (<code>services/hubs/certs/</code> をマウント) になっているため、ローカル開発では自動的に
+            <code>wss://</code> で待ち受ける。起動ログの
+            <code>[runner] report WS listening on wss://…</code>
+            を確認すること。<code>(no TLS)</code>
+            と表示されていれば、証明書のパスが読めていない。
+          </li>
+          <li>
+            ブラウザが <code>wss://&lt;runner-host&gt;:9099</code>
+            の証明書を信頼していない。hubs ページが警告なしで開けているなら
+            mkcert のルート CA は既に信頼されているはずで、同じ証明書で 9099
+            番も通る。それでも繋がらない場合は、ブラウザで
+            <code>https://&lt;runner-host&gt;:9099/</code>
+            に一度アクセスして証明書例外を登録する (画面は "Upgrade Required"
+            でよい — 重要なのは例外登録)。
+          </li>
+          <li>
+            CSP がレポート先のオリジンをブロックしている。reticulum
+            は hub ページに厳格な <code>Content-Security-Policy</code>
+            ヘッダを付与しており、<code>connect-src</code> に
+            <code>wss://&lt;runner-host&gt;:9099</code>
+            が含まれていないとブラウザは WebSocket を開かない (DevTools
+            に "Connecting to '…' violates the following Content Security Policy directive: 'connect-src …'"
+            が出る)。ローカル開発では
+            <code>services/reticulum/config/dev.exs</code> の
+            <code>websocket_hosts</code> 文字列に追記し、reticulum
+            を再起動して反映する。デプロイ環境では reticulum
+            の admin 設定 (<code>RetWeb.Plugs.AddCSP</code> の custom rules)
+            に追加する。
+          </li>
+          <li>
+            評価モジュールホスト側でポート 9099
+            がファイアウォールに塞がれている。
+          </li>
+          <li>
+            k8s ingress 経由の場合: 証明書が信頼されていない、もしくは websocket
+            トンネルのタイムアウトが短すぎる (haproxy のデフォルトは 60
+            秒、<code>haproxy.org/timeout-tunnel: "30m"</code> を設定)。
+          </li>
+        </ul>
+
+        <h3>chirp-pairs.csv が空または極端に少ない</h3>
+        <ul>
+          <li>
+            スピーカーが未接続、もしくは途中で落ちた。<code>run.json</code> で
+            <code>mode: "speaker"</code> のクライアントを確認する。
+          </li>
+          <li>
+            スピーカーボットユーザーを
+            <code>EVAL_SPEAKER=1</code> なしで起動している —
+            デフォルトのパッシブモードではチャープを送出しない。
+          </li>
+          <li>
+            モバイルのスピーカーで音声解除のタップを行っていない。<code
+              >mode=speaker</code
+            >
+            はスマートフォン/タブレットでは適さない場合が多い —
+            スピーカーボットユーザーを優先する。
+          </li>
+          <li>
+            コーデック劣化による Goertzel の検出漏れ。検証方法:
+            人間が同じルームに入り、周期的な 1 kHz
+            の信号音が聴こえるか確認する。
+          </li>
+          <li>
+            <strong>チャープは聴こえるのに <code>chirp-detect = 0</code></strong>
+            (<code>probe-events.csv</code> の emit
+            は正常に出ているのに、すべてのリスナーで検出が 0)。検出器の
+            <code>AudioContext</code> が Chrome の自動再生ポリシーで
+            <code>suspended</code> のまま。プローブは最初の
+            <code>pointerdown</code> / <code>keydown</code> /
+            <code>touchstart</code> / <code>click</code>
+            で自動的に resume するため、URL
+            を開いて放置するだけのタブはこの状態に陥る。ルームページで一度クリックして再実行する。実行中に
+            <code>__eval.patcher._detector._ctx.state === "running"</code>
+            であることを確認するとよい。
+          </li>
+        </ul>
+
+        <h3>pose-pairs.csv の行数が想定より大幅に少ない</h3>
+        <ul>
+          <li>
+            リスナー URL に
+            <code>?sample=&lt;x&gt;</code> を付けたまま、期待値を
+            <code>x</code> 倍に補正し忘れている。
+          </li>
+          <li>
+            ボットユーザーが途中で落ちた。ボットユーザー側のターミナル出力で
+            <code>process.exit</code>、OOM、"Detected avatar dog-pile"
+            の有無を確認する — 最後のメッセージは EVAL_MODE では
+            <code>continuing</code> であるはず。<code>Restarting</code>
+            となっていれば <code>EVAL_MODE=1</code> 付きで起動されていない。
+          </li>
+          <li>
+            受信側サンプリングが有効になっている。ブラウザエージェントのデフォルトは
+            <code>sample=1.0</code> (100 %) だが、N ≥ 40 では WS
+            の帯域削減のため <code>sample=0.1</code> に下げる運用もある。
+          </li>
+        </ul>
+
+        <h3>clock_ci_ms が大きい (&gt; 5)</h3>
+        <ul>
+          <li>
+            評価モジュールホストに LAN 経由で ping を打ってみる。RTT &gt; 5 ms
+            であれば、それが計測可能な精度の限界となる。
+          </li>
+          <li>
+            評価モジュールが WiFi 上にあるなら、評価中は Ethernet に切り替える。
+          </li>
+          <li>
+            評価モジュールホストにバックグラウンドのネットワーク負荷がある —
+            同期処理、大容量ダウンロード、画面共有等を一時停止する。
+          </li>
+        </ul>
+
+        <h3>評価モジュールが起動直後に "EADDRINUSE" で終了</h3>
+        <p>
+          ポート 9099 が既に使用中。占有しているプロセスを
+          <code>lsof -i :9099</code> (mac/linux) または
+          <code>netstat -ano | findstr 9099</code> (Windows)
+          で特定して停止するか、<code>--port 9100</code>
+          を渡して別ポートで起動する (この場合
+          <code>EVAL_REPORT_HOST</code> 由来の URL も合わせて更新する)。
+        </p>
+
+        <h3>LiveKit / Sora で rtc-stats.csv にフィールドが欠落</h3>
+        <p>
+          ブラウザエージェントはアダプタの内部 (<code>_sendTransport</code>,
+          <code>room.engine.publisher.pc</code> 等)
+          に既知のフィールド名でアクセスする。上流アダプタの構造が変わっていれば
+          PeerConnection リストが空になる。<code
+            >services/hubs/src/eval/rtc-stats.ts</code
+          >
+          の
+          <code>extractPeerConnections</code>
+          を現在のアダプタのフィールドパスに合わせて修正する。他のメトリクスはそのまま動作し続ける。
+        </p>
+
+        <h2 id="after">6. 全セル完了後</h2>
+
+        <h4>評価モジュールコンテナを停止</h4>
+        <div class="runs-on">実行先: 評価モジュールホスト</div>
+        <pre><code>docker compose --profile eval -f docker-compose.yml -f docker-compose.eval.yml down</code></pre>
+
+        <h4>残ったボットユーザープロセスを停止</h4>
+        <div class="runs-on bot">実行先: すべてのボットユーザーホスト</div>
+        <pre><code>pkill -f run-bot.js</code></pre>
+
+        <h4>続けて以下を実施</h4>
+        <ul class="checklist">
+          <li>
+            評価モジュールホスト上の
+            <code>eval/results/</code>
+            ディレクトリ全体を長期保管先にアーカイブする。報告するあらゆる数値の一次データなので、それに見合った慎重さで扱う。
+          </li>
+          <li>
+            作成した各図表・サマリーについて、<code
+              >eval/docs/figures-to-commands.md</code
+            >
+            の該当行に run_id と実際に用いたコマンドを記入する。
+          </li>
+          <li>
+            <code>eval/docs/interpreting-results.md</code> の集計スニペットを全
+            <code>run.json</code>
+            に対して実行し、セルごとのサマリー表を作成する。
+          </li>
+          <li>
+            CSV から好みのツール (matplotlib、R、ggplot、Excel など)
+            でプロットを作成する。
+          </li>
+        </ul>
+
+        <h2 id="refs">7. クイックリファレンス</h2>
+
+        <h4>ブラウザエージェント URL パラメータ</h4>
+        <table>
+          <tr>
+            <th>パラメータ</th>
+            <th>値</th>
+            <th>備考</th>
+          </tr>
+          <tr>
+            <td><code>eval</code></td>
+            <td><code>1</code></td>
+            <td>ブラウザエージェントの読み込みに必須。</td>
+          </tr>
+          <tr>
+            <td><code>mode</code></td>
+            <td><code>passive</code> (デフォルト) / <code>speaker</code></td>
+            <td>1 ラン中のスピーカーはちょうど 1 名とする。</td>
+          </tr>
+          <tr>
+            <td><code>label</code></td>
+            <td>任意の一意な文字列</td>
+            <td>結果をデバイス / ロールで切り分けるためのキー。</td>
+          </tr>
+          <tr>
+            <td><code>report</code></td>
+            <td><code>wss://host:port</code></td>
+            <td>計測の送信先。このデバイスから到達可能であること。</td>
+          </tr>
+          <tr>
+            <td><code>sample</code></td>
+            <td><code>0&lt;x≤1</code> (デフォルト <code>1</code>)</td>
+            <td>受信側のサンプリング率。送信側のイベントは常に 100 %。</td>
+          </tr>
+          <tr>
+            <td><code>hub_id</code></td>
+            <td>hub sid</td>
+            <td>
+              ブラウザエージェントが APP
+              から推定できない場合に明示的に上書きする任意指定。
+            </td>
+          </tr>
+        </table>
+
+        <h4>ボットユーザー環境変数</h4>
+        <table>
+          <tr>
+            <th>変数</th>
+            <th>効果</th>
+          </tr>
+          <tr>
+            <td><code>EVAL_MODE=1</code></td>
+            <td>
+              以下の機能を有効化する。Puppeteer の autoplay
+              フラグも追加し、dog-pile 終了をスキップする。
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>EVAL_LABEL=<em>tag</em></code>
+            </td>
+            <td>hello メッセージで送信するラベル。</td>
+          </tr>
+          <tr>
+            <td><code>EVAL_SPEAKER=1</code></td>
+            <td>
+              ブラウザエージェントを <code>mode=speaker</code> で起動させる。
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>EVAL_REPORT_WS_URL=<em>wss://…</em></code>
+            </td>
+            <td>評価モジュールのエンドポイント。</td>
+          </tr>
+          <tr>
+            <td>
+              <code>EVAL_SAMPLE_RATE=<em>0.1</em></code>
+            </td>
+            <td>受信側サンプリング率 (ボットユーザーでは通常不要)。</td>
+          </tr>
+        </table>
+
+        <h4>評価モジュール CLI</h4>
+        <table>
+          <tr>
+            <th>フラグ</th>
+            <th>必須</th>
+            <th>デフォルト</th>
+          </tr>
+          <tr>
+            <td><code>--label</code></td>
+            <td>yes</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td><code>--room</code></td>
+            <td>yes</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td><code>--duration</code></td>
+            <td>no</td>
+            <td><code>300s</code> (<code>5m</code>, <code>1h</code> も可)</td>
+          </tr>
+          <tr>
+            <td><code>--port</code></td>
+            <td>no</td>
+            <td><code>9099</code></td>
+          </tr>
+          <tr>
+            <td><code>--out</code></td>
+            <td>no</td>
+            <td><code>results/</code></td>
+          </tr>
+          <tr>
+            <td><code>--dialog-url</code></td>
+            <td>no</td>
+            <td>なし (Dialog ポーリングをスキップ)</td>
+          </tr>
+          <tr>
+            <td><code>--host-stats</code></td>
+            <td>no</td>
+            <td>
+              <code>docker</code> (他に <code>k8s</code>, <code>off</code>)
+            </td>
+          </tr>
+          <tr>
+            <td><code>--container-filter</code></td>
+            <td>no</td>
+            <td>
+              <code>dialog,reticulum,hubs-client,coturn,db,postgrest</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>--public-url</code></td>
+            <td>no</td>
+            <td><code>EVAL_REPORT_HOST</code> から派生</td>
+          </tr>
+          <tr>
+            <td><code>--k8s-nodes</code></td>
+            <td>no</td>
+            <td>なし (k8s モードのみ)</td>
+          </tr>
+        </table>
+
+        <h4>SFU コード (reticulum の Hub.sfu フィールド)</h4>
+        <table>
+          <tr>
+            <th>値</th>
+            <th>バックエンド</th>
+          </tr>
+          <tr>
+            <td><code>0</code></td>
+            <td>Dialog (mediasoup、バンドル)</td>
+          </tr>
+          <tr>
+            <td><code>1</code></td>
+            <td>Sora</td>
+          </tr>
+          <tr>
+            <td><code>2</code></td>
+            <td>LiveKit</td>
+          </tr>
+          <tr>
+            <td><code>3</code></td>
+            <td>Cloudflare Realtime</td>
+          </tr>
+        </table>
+
+        <h4>出力ファイル (実行 1 件あたり)</h4>
+        <table>
+          <tr>
+            <th>ファイル</th>
+            <th>用途</th>
+          </tr>
+          <tr>
+            <td><code>run.json</code></td>
+            <td>マニフェスト、クライアントごとの clock CI、警告。</td>
+          </tr>
+          <tr>
+            <td><code>probe-events.csv</code></td>
+            <td>ブラウザエージェントイベントの生データ (デバッグ用)。</td>
+          </tr>
+          <tr>
+            <td><code>pose-pairs.csv</code></td>
+            <td>アバターポーズのレイテンシ (主要な RQ1/RQ2 ソース)。</td>
+          </tr>
+          <tr>
+            <td><code>chirp-pairs.csv</code></td>
+            <td>音声レイテンシ。</td>
+          </tr>
+          <tr>
+            <td><code>audio-avatar-offset.csv</code></td>
+            <td>音声 ↔ アバターのオフセット。</td>
+          </tr>
+          <tr>
+            <td><code>rtc-stats.csv</code></td>
+            <td>ストリームごとのジッタ、RTT、ロス、ビットレート。</td>
+          </tr>
+          <tr>
+            <td><code>dialog.csv</code></td>
+            <td>Dialog サーバの容量に関する時系列データ。</td>
+          </tr>
+          <tr>
+            <td><code>host.csv</code></td>
+            <td>コンテナの CPU / メモリ / ネットワーク。</td>
+          </tr>
+        </table>
+
+        <hr />
+
+        <h2 id="notes">8. 補足とスコープ判断</h2>
+
+        <h4>稼働中の SFU 切替は対象外</h4>
+        <p>
+          本評価ではルーム稼働中の SFU
+          切替を実施しない。各セルは評価モジュール起動前に reticulum で 1 つの
+          SFU を設定して計測し、他の SFU
+          への切替は稼働中のトグル操作ではなく、ルームを再構成 (§3.1)
+          して新規セルとして始める。結果として:
+        </p>
+        <ul>
+          <li>
+            reticulum の
+            <code>webrtc-settings|allow_switch_sfu</code>
+            フラグは本評価とは無関係であり、切替や復元の必要はない。
+          </li>
+          <li>
+            本計測では chutvrc
+            内の動的再構成ロジックは検証されない。データから特徴づけられるのは
+            (hosting, SFU, N) セルごとの定常状態における挙動のみである。
+          </li>
+        </ul>
+
+        <p class="meta">
+          ハーネスの API 仕様と CSV カラム凡例は
+          <code>eval/docs/README.md</code> および
+          <code>eval/docs/interpreting-results.md</code> を参照。
+        </p>
+      </main>
+    </div>
+  </body>
+</html>
