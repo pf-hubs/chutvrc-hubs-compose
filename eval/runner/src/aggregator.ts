@@ -178,26 +178,61 @@ export class Aggregator {
       "magnitude"
     ];
     const rows: string[] = [headers.join(",")];
+
+    // Pair each emit with the first plausibly-corresponding detect using a
+    // time-window two-pointer walk. Robust to false-positive detections at
+    // the start/middle of a run and to missed detections — naive index
+    // pairing would propagate any single off-by-one through the rest of the
+    // listener's run, producing systematic negative latencies.
+    //
+    // CLOCK_TOLERANCE_MS: tolerate small negative apparent latency from
+    //   cross-client clock skew (typical clock_ci_ms is 1–5 ms; this is well
+    //   above that).
+    // PAIRING_WINDOW_MS: a detect arriving more than this far after an emit
+    //   is treated as "the emit was missed by this listener". Must stay
+    //   strictly less than the chirp interval in audio-chirp.ts (currently
+    //   5000 ms) so we never cross-pair emit[N] with detect[N+1]. The
+    //   1000 ms safety margin tolerates pathological cloud / N=80 / jitter
+    //   scenarios.
+    const CLOCK_TOLERANCE_MS = 50;
+    const PAIRING_WINDOW_MS = 4000;
+
     for (const [dkey, detList] of detects.entries()) {
       const [speaker, listener] = dkey.split("|");
       const emitList = emits.get(speaker) || [];
-      emitList.sort((a, b) => a.seq - b.seq);
+      emitList.sort((a, b) => a.t_server - b.t_server);
       detList.sort((a, b) => a.t_server - b.t_server);
-      const n = Math.min(emitList.length, detList.length);
-      for (let i = 0; i < n; i++) {
+
+      let i = 0;
+      let j = 0;
+      while (i < emitList.length && j < detList.length) {
         const em = emitList[i];
-        const det = detList[i];
-        rows.push(
-          [
-            csvCell(speaker),
-            csvCell(listener),
-            String(em.seq),
-            numCell(em.t_server),
-            numCell(det.t_server),
-            numCell(det.t_server - em.t_server),
-            numCell(det.magnitude)
-          ].join(",")
-        );
+        const det = detList[j];
+        const dt = det.t_server - em.t_server;
+
+        if (dt < -CLOCK_TOLERANCE_MS) {
+          // Detect arrived materially before this emit — it's a false
+          // positive (or matches an earlier emit already paired).
+          j++;
+        } else if (dt > PAIRING_WINDOW_MS) {
+          // No detect within the window after this emit — the emit was
+          // missed by this listener.
+          i++;
+        } else {
+          rows.push(
+            [
+              csvCell(speaker),
+              csvCell(listener),
+              String(em.seq),
+              numCell(em.t_server),
+              numCell(det.t_server),
+              numCell(dt),
+              numCell(det.magnitude)
+            ].join(",")
+          );
+          i++;
+          j++;
+        }
       }
     }
     fs.writeFileSync(path.join(this._outDir, "chirp-pairs.csv"), rows.join("\n") + "\n");
