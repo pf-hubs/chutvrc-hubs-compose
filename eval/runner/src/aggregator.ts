@@ -206,8 +206,11 @@ export class Aggregator {
   private _writeAudioAvatarOffset(idx: OffsetIndex) {
     // For each chirp-detect (speaker, listener, t_chirp_recv), find the
     // latest avatar-recv from same speaker at same listener with t<=t_chirp_recv.
-    // Use the HEAD channel as the pose reference.
-    const POSE_CHANNEL = "#avatar-HEAD";
+    // Use the RIG channel as the pose reference: avatar-sync-helper only
+    // broadcasts HEAD/LEFT/RIGHT when their transform changes, while RIG is
+    // sent every tick — so RIG is the only channel that gives a continuous
+    // "where is the avatar now" signal regardless of whether the user moves.
+    const POSE_CHANNEL = "#avatar-RIG";
 
     type Recv = { t_server: number };
     const poseByPair = new Map<string, Recv[]>(); // source|listener -> sorted recvs
