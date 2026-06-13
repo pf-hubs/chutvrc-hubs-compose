@@ -28,6 +28,38 @@ export class Aggregator {
     this._events.push(row);
   }
 
+  // Write a CSV by streaming each row as it's produced, never accumulating
+  // the full file content as a single in-memory string. Required at high N
+  // where total row count can exceed V8's max string length (~512 MB) and
+  // crash the runner with "Invalid string length" / "string too long" before
+  // the file is written.
+  //
+  // The buffer is flushed when it exceeds FLUSH_THRESHOLD; this caps peak
+  // memory regardless of total CSV size.
+  private _streamCsv(
+    filename: string,
+    headers: string[],
+    generate: (emit: (row: string) => void) => void
+  ): void {
+    const filepath = path.join(this._outDir, filename);
+    const fd = fs.openSync(filepath, "w");
+    try {
+      const FLUSH_THRESHOLD = 16 * 1024 * 1024; // 16 MB
+      let buf = headers.join(",") + "\n";
+      const emit = (row: string) => {
+        buf += row + "\n";
+        if (buf.length >= FLUSH_THRESHOLD) {
+          fs.writeSync(fd, buf);
+          buf = "";
+        }
+      };
+      generate(emit);
+      if (buf.length > 0) fs.writeSync(fd, buf);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
   ingestDialog(snap: DialogSnapshot) {
     this._dialogSnaps.push(snap);
   }
@@ -66,25 +98,25 @@ export class Aggregator {
       "peer_kind",
       "magnitude"
     ];
-    const rows: string[] = [headers.join(",")];
-    for (const e of this._events) {
-      const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
-      rows.push(
-        [
-          numCell(t_server),
-          numCell(e.t_client_ms),
-          csvCell(e.client_id),
-          csvCell(e.label),
-          csvCell(e.kind),
-          csvCell((e as any).channel),
-          csvCell((e as any).source_client_id || (e as any).peer_client_id),
-          numCell((e as any).seq),
-          csvCell((e as any).peer_kind),
-          numCell((e as any).magnitude)
-        ].join(",")
-      );
-    }
-    fs.writeFileSync(path.join(this._outDir, "probe-events.csv"), rows.join("\n") + "\n");
+    this._streamCsv("probe-events.csv", headers, (emit) => {
+      for (const e of this._events) {
+        const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
+        emit(
+          [
+            numCell(t_server),
+            numCell(e.t_client_ms),
+            csvCell(e.client_id),
+            csvCell(e.label),
+            csvCell(e.kind),
+            csvCell((e as any).channel),
+            csvCell((e as any).source_client_id || (e as any).peer_client_id),
+            numCell((e as any).seq),
+            csvCell((e as any).peer_kind),
+            numCell((e as any).magnitude)
+          ].join(",")
+        );
+      }
+    });
   }
 
   private _writePosePairs(idx: OffsetIndex) {
@@ -134,38 +166,38 @@ export class Aggregator {
       "t_recv_server_ms",
       "latency_ms"
     ];
-    const rows: string[] = [headers.join(",")];
 
-    for (const [rkey, recvList] of recvs.entries()) {
-      const [source, recv, channel] = rkey.split("|");
-      const sendMap = sends.get(source + "|" + channel);
-      if (!sendMap) continue;
-      // Sort output by seq so rows are in send order. The pairing is by
-      // seq lookup, not by index — sorting here is purely cosmetic for the
-      // CSV row order.
-      recvList.sort((a, b) => a.seq - b.seq);
-      for (const r of recvList) {
-        const t_send = sendMap.get(r.seq);
-        if (t_send === undefined) {
-          // recv with no matching send — should not occur in normal operation
-          // (would imply a phantom seq on the receiver). Skip silently.
-          continue;
+    this._streamCsv("pose-pairs.csv", headers, (emit) => {
+      for (const [rkey, recvList] of recvs.entries()) {
+        const [source, recv, channel] = rkey.split("|");
+        const sendMap = sends.get(source + "|" + channel);
+        if (!sendMap) continue;
+        // Sort output by seq so rows are in send order. The pairing is by
+        // seq lookup, not by index — sorting here is purely cosmetic for the
+        // CSV row order.
+        recvList.sort((a, b) => a.seq - b.seq);
+        for (const r of recvList) {
+          const t_send = sendMap.get(r.seq);
+          if (t_send === undefined) {
+            // recv with no matching send — should not occur in normal operation
+            // (would imply a phantom seq on the receiver). Skip silently.
+            continue;
+          }
+          const latency = r.t_server - t_send;
+          emit(
+            [
+              csvCell(source),
+              csvCell(recv),
+              csvCell(channel),
+              String(r.seq),
+              numCell(t_send),
+              numCell(r.t_server),
+              numCell(latency)
+            ].join(",")
+          );
         }
-        const latency = r.t_server - t_send;
-        rows.push(
-          [
-            csvCell(source),
-            csvCell(recv),
-            csvCell(channel),
-            String(r.seq),
-            numCell(t_send),
-            numCell(r.t_server),
-            numCell(latency)
-          ].join(",")
-        );
       }
-    }
-    fs.writeFileSync(path.join(this._outDir, "pose-pairs.csv"), rows.join("\n") + "\n");
+    });
   }
 
   private _writeChirpPairs(idx: OffsetIndex) {
@@ -199,7 +231,6 @@ export class Aggregator {
       "latency_ms",
       "magnitude"
     ];
-    const rows: string[] = [headers.join(",")];
 
     // Pair each emit with the first plausibly-corresponding detect using a
     // time-window two-pointer walk. Robust to false-positive detections at
@@ -219,45 +250,46 @@ export class Aggregator {
     const CLOCK_TOLERANCE_MS = 50;
     const PAIRING_WINDOW_MS = 4000;
 
-    for (const [dkey, detList] of detects.entries()) {
-      const [speaker, listener] = dkey.split("|");
-      const emitList = emits.get(speaker) || [];
-      emitList.sort((a, b) => a.t_server - b.t_server);
-      detList.sort((a, b) => a.t_server - b.t_server);
+    this._streamCsv("chirp-pairs.csv", headers, (emit) => {
+      for (const [dkey, detList] of detects.entries()) {
+        const [speaker, listener] = dkey.split("|");
+        const emitList = emits.get(speaker) || [];
+        emitList.sort((a, b) => a.t_server - b.t_server);
+        detList.sort((a, b) => a.t_server - b.t_server);
 
-      let i = 0;
-      let j = 0;
-      while (i < emitList.length && j < detList.length) {
-        const em = emitList[i];
-        const det = detList[j];
-        const dt = det.t_server - em.t_server;
+        let i = 0;
+        let j = 0;
+        while (i < emitList.length && j < detList.length) {
+          const em = emitList[i];
+          const det = detList[j];
+          const dt = det.t_server - em.t_server;
 
-        if (dt < -CLOCK_TOLERANCE_MS) {
-          // Detect arrived materially before this emit — it's a false
-          // positive (or matches an earlier emit already paired).
-          j++;
-        } else if (dt > PAIRING_WINDOW_MS) {
-          // No detect within the window after this emit — the emit was
-          // missed by this listener.
-          i++;
-        } else {
-          rows.push(
-            [
-              csvCell(speaker),
-              csvCell(listener),
-              String(em.seq),
-              numCell(em.t_server),
-              numCell(det.t_server),
-              numCell(dt),
-              numCell(det.magnitude)
-            ].join(",")
-          );
-          i++;
-          j++;
+          if (dt < -CLOCK_TOLERANCE_MS) {
+            // Detect arrived materially before this emit — it's a false
+            // positive (or matches an earlier emit already paired).
+            j++;
+          } else if (dt > PAIRING_WINDOW_MS) {
+            // No detect within the window after this emit — the emit was
+            // missed by this listener.
+            i++;
+          } else {
+            emit(
+              [
+                csvCell(speaker),
+                csvCell(listener),
+                String(em.seq),
+                numCell(em.t_server),
+                numCell(det.t_server),
+                numCell(dt),
+                numCell(det.magnitude)
+              ].join(",")
+            );
+            i++;
+            j++;
+          }
         }
       }
-    }
-    fs.writeFileSync(path.join(this._outDir, "chirp-pairs.csv"), rows.join("\n") + "\n");
+    });
   }
 
   private _writeAudioAvatarOffset(idx: OffsetIndex) {
@@ -288,39 +320,39 @@ export class Aggregator {
       "t_pose_recv_ms",
       "offset_ms"
     ];
-    const rows: string[] = [headers.join(",")];
-    for (const e of this._events) {
-      if (e.kind !== "chirp-detect") continue;
-      if (!e.source_client_id) continue;
-      const t_chirp = idx.toServerMs(e.client_id, e.t_client_ms);
-      const k = e.source_client_id + "|" + e.client_id;
-      const poses = poseByPair.get(k) || [];
-      // Latest pose <= t_chirp via binary search.
-      let lo = 0;
-      let hi = poses.length - 1;
-      let best = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >>> 1;
-        if (poses[mid].t_server <= t_chirp) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
+    this._streamCsv("audio-avatar-offset.csv", headers, (emit) => {
+      for (const e of this._events) {
+        if (e.kind !== "chirp-detect") continue;
+        if (!e.source_client_id) continue;
+        const t_chirp = idx.toServerMs(e.client_id, e.t_client_ms);
+        const k = e.source_client_id + "|" + e.client_id;
+        const poses = poseByPair.get(k) || [];
+        // Latest pose <= t_chirp via binary search.
+        let lo = 0;
+        let hi = poses.length - 1;
+        let best = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >>> 1;
+          if (poses[mid].t_server <= t_chirp) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
         }
+        if (best < 0) continue;
+        const t_pose = poses[best].t_server;
+        emit(
+          [
+            csvCell(e.source_client_id),
+            csvCell(e.client_id),
+            numCell(t_chirp),
+            numCell(t_pose),
+            numCell(t_chirp - t_pose)
+          ].join(",")
+        );
       }
-      if (best < 0) continue;
-      const t_pose = poses[best].t_server;
-      rows.push(
-        [
-          csvCell(e.source_client_id),
-          csvCell(e.client_id),
-          numCell(t_chirp),
-          numCell(t_pose),
-          numCell(t_chirp - t_pose)
-        ].join(",")
-      );
-    }
-    fs.writeFileSync(path.join(this._outDir, "audio-avatar-offset.csv"), rows.join("\n") + "\n");
+    });
   }
 
   private _writeRtcStats(idx: OffsetIndex) {
@@ -342,45 +374,45 @@ export class Aggregator {
       "availableOutgoingBitrate",
       "availableIncomingBitrate"
     ];
-    const rows: string[] = [headers.join(",")];
-    for (const e of this._events) {
-      if (e.kind !== "rtc-stats") continue;
-      const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
-      const report = e.report || {};
-      for (const [statId, statRaw] of Object.entries(report)) {
-        const stat = statRaw as Record<string, unknown>;
-        rows.push(
-          [
-            numCell(t_server),
-            csvCell(e.client_id),
-            csvCell(e.label),
-            csvCell(e.peer_kind),
-            csvCell(statId),
-            csvCell(stat.type),
-            csvCell(stat.kind),
-            numCell(stat.jitter),
-            numCell(stat.currentRoundTripTime),
-            numCell(stat.bytesSent),
-            numCell(stat.bytesReceived),
-            numCell(stat.packetsLost),
-            numCell(stat.packetsSent),
-            numCell(stat.packetsReceived),
-            numCell(stat.availableOutgoingBitrate),
-            numCell(stat.availableIncomingBitrate)
-          ].join(",")
-        );
+    this._streamCsv("rtc-stats.csv", headers, (emit) => {
+      for (const e of this._events) {
+        if (e.kind !== "rtc-stats") continue;
+        const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
+        const report = e.report || {};
+        for (const [statId, statRaw] of Object.entries(report)) {
+          const stat = statRaw as Record<string, unknown>;
+          emit(
+            [
+              numCell(t_server),
+              csvCell(e.client_id),
+              csvCell(e.label),
+              csvCell(e.peer_kind),
+              csvCell(statId),
+              csvCell(stat.type),
+              csvCell(stat.kind),
+              numCell(stat.jitter),
+              numCell(stat.currentRoundTripTime),
+              numCell(stat.bytesSent),
+              numCell(stat.bytesReceived),
+              numCell(stat.packetsLost),
+              numCell(stat.packetsSent),
+              numCell(stat.packetsReceived),
+              numCell(stat.availableOutgoingBitrate),
+              numCell(stat.availableIncomingBitrate)
+            ].join(",")
+          );
+        }
       }
-    }
-    fs.writeFileSync(path.join(this._outDir, "rtc-stats.csv"), rows.join("\n") + "\n");
+    });
   }
 
   private _writeDialog() {
     const headers = ["ts_server_ms", "hostname", "capacity"];
-    const rows: string[] = [headers.join(",")];
-    for (const s of this._dialogSnaps) {
-      rows.push([numCell(s.ts_ms), csvCell(s.hostname), numCell(s.capacity)].join(","));
-    }
-    fs.writeFileSync(path.join(this._outDir, "dialog.csv"), rows.join("\n") + "\n");
+    this._streamCsv("dialog.csv", headers, (emit) => {
+      for (const s of this._dialogSnaps) {
+        emit([numCell(s.ts_ms), csvCell(s.hostname), numCell(s.capacity)].join(","));
+      }
+    });
   }
 
   private _writeHost() {
@@ -393,21 +425,21 @@ export class Aggregator {
       "net_rx_bytes",
       "net_tx_bytes"
     ];
-    const rows: string[] = [headers.join(",")];
-    for (const s of this._hostSamples) {
-      rows.push(
-        [
-          numCell(s.ts_ms),
-          csvCell(s.source),
-          csvCell(s.container),
-          numCell(s.cpu_pct),
-          numCell(s.mem_bytes),
-          numCell(s.net_rx_bytes),
-          numCell(s.net_tx_bytes)
-        ].join(",")
-      );
-    }
-    fs.writeFileSync(path.join(this._outDir, "host.csv"), rows.join("\n") + "\n");
+    this._streamCsv("host.csv", headers, (emit) => {
+      for (const s of this._hostSamples) {
+        emit(
+          [
+            numCell(s.ts_ms),
+            csvCell(s.source),
+            csvCell(s.container),
+            numCell(s.cpu_pct),
+            numCell(s.mem_bytes),
+            numCell(s.net_rx_bytes),
+            numCell(s.net_tx_bytes)
+          ].join(",")
+        );
+      }
+    });
   }
 }
 
