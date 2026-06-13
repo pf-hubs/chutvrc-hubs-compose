@@ -20,9 +20,9 @@ clone_or_skip() {
 }
 
 echo -e ${prefix}Cloning source repositories$suffix
-clone_or_skip https://github.com/pf-hubs/chutvrc-reticulum.git "$servicesdir"/reticulum develop || exit 1
+clone_or_skip https://github.com/pf-hubs/chutvrc-reticulum.git "$servicesdir"/reticulum evaluation-module || exit 1
 clone_or_skip https://github.com/pf-hubs/chutvrc-dialog.git    "$servicesdir"/dialog    develop || exit 1
-clone_or_skip https://github.com/pf-hubs/chutvrc-hubs.git      "$servicesdir"/hubs      develop || exit 1
+clone_or_skip https://github.com/pf-hubs/chutvrc-hubs.git      "$servicesdir"/hubs      evaluation-module || exit 1
 clone_or_skip https://github.com/pf-hubs/chutvrc-spoke.git     "$servicesdir"/spoke     develop || exit 1
 
 composefile=$basedir/docker-compose.yml

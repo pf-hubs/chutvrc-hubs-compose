@@ -88,19 +88,34 @@ export class Aggregator {
   }
 
   private _writePosePairs(idx: OffsetIndex) {
-    // Group sends by (from_client, channel) and receives by (source, recv_client, channel).
+    // For each (sender, channel) we keep a map of seq -> send timestamp.
+    // For each (sender, receiver, channel) tuple we keep a list of received
+    // events. Pairing then matches each recv to its sender's send by exact
+    // seq number, not by list index.
+    //
+    // The original implementation sorted both lists by seq and paired by
+    // index, which produces correct results only if no seqs are missing on
+    // either side. Any random-interspersed loss would shift every subsequent
+    // pair by one in seq, accumulating ~30 ms inflation per loss (at 30 Hz)
+    // on top of the real per-pair latency. In practice losses on this stack
+    // tend to cluster at the tail of the cell (still-in-flight messages at
+    // exit), where index pairing happens to coincide with seq matching;
+    // but interspersed loss would silently corrupt the report.
     type SendKey = string;
     type RecvKey = string;
-    const sends = new Map<SendKey, { seq: number; t_server: number }[]>();
+    const sends = new Map<SendKey, Map<number, number>>(); // (sender|channel) -> (seq -> t_server)
     const recvs = new Map<RecvKey, { seq: number; t_server: number }[]>();
 
     for (const e of this._events) {
       if (e.kind === "avatar-send") {
         const k = e.client_id + "|" + e.channel;
         const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
-        const arr = sends.get(k) || [];
-        arr.push({ seq: e.seq, t_server });
-        sends.set(k, arr);
+        let m = sends.get(k);
+        if (!m) {
+          m = new Map<number, number>();
+          sends.set(k, m);
+        }
+        m.set(e.seq, t_server);
       } else if (e.kind === "avatar-recv") {
         const k = e.source_client_id + "|" + e.client_id + "|" + e.channel;
         const t_server = idx.toServerMs(e.client_id, e.t_client_ms);
@@ -120,23 +135,30 @@ export class Aggregator {
       "latency_ms"
     ];
     const rows: string[] = [headers.join(",")];
+
     for (const [rkey, recvList] of recvs.entries()) {
       const [source, recv, channel] = rkey.split("|");
-      const sendList = sends.get(source + "|" + channel) || [];
-      sendList.sort((a, b) => a.seq - b.seq);
+      const sendMap = sends.get(source + "|" + channel);
+      if (!sendMap) continue;
+      // Sort output by seq so rows are in send order. The pairing is by
+      // seq lookup, not by index — sorting here is purely cosmetic for the
+      // CSV row order.
       recvList.sort((a, b) => a.seq - b.seq);
-      const n = Math.min(sendList.length, recvList.length);
-      for (let i = 0; i < n; i++) {
-        const s = sendList[i];
-        const r = recvList[i];
-        const latency = r.t_server - s.t_server;
+      for (const r of recvList) {
+        const t_send = sendMap.get(r.seq);
+        if (t_send === undefined) {
+          // recv with no matching send — should not occur in normal operation
+          // (would imply a phantom seq on the receiver). Skip silently.
+          continue;
+        }
+        const latency = r.t_server - t_send;
         rows.push(
           [
             csvCell(source),
             csvCell(recv),
             csvCell(channel),
-            String(i),
-            numCell(s.t_server),
+            String(r.seq),
+            numCell(t_send),
             numCell(r.t_server),
             numCell(latency)
           ].join(",")
