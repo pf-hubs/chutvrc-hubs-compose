@@ -91,7 +91,14 @@ export class Aggregator {
     }
 
     this._writeProbeEvents(offsetIndex);
-    this._writePosePairs(offsetIndex);
+    // speaker->listener only: we only measure the speaker's avatar at the
+    // listener(s), so pose-pairs is restricted to pairs whose SENDER is a
+    // speaker. (chirp-pairs and audio-avatar-offset are already speaker-sourced
+    // because only the speaker emits chirps / HEAD slates.)
+    const speakerIds = new Set(
+      clients.filter(c => c.mode === "speaker").map(c => c.client_id)
+    );
+    this._writePosePairs(offsetIndex, speakerIds);
     this._writeChirpPairs(offsetIndex);
     this._writeAudioAvatarOffset(offsetIndex);
     this._writeRtcStats(offsetIndex);
@@ -172,7 +179,7 @@ export class Aggregator {
     });
   }
 
-  private _writePosePairs(idx: OffsetIndex) {
+  private _writePosePairs(idx: OffsetIndex, speakerIds: Set<string>) {
     // For each (sender, channel) we keep a map of seq -> send timestamp.
     // For each (sender, receiver, channel) tuple we keep a list of received
     // events. Pairing then matches each recv to its sender's send by exact
@@ -223,6 +230,8 @@ export class Aggregator {
     this._streamCsv("pose-pairs.csv", headers, (emit) => {
       for (const [rkey, recvList] of recvs.entries()) {
         const [source, recv, channel] = rkey.split("|");
+        // speaker->listener only: skip pairs whose sender isn't a speaker.
+        if (!speakerIds.has(source)) continue;
         const sendMap = sends.get(source + "|" + channel);
         if (!sendMap) continue;
         // Sort output by seq so rows are in send order. The pairing is by
