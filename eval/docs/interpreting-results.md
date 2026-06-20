@@ -64,15 +64,34 @@ a refractory window before logging.
 
 ## `audio-avatar-offset.csv`
 
+Audio↔avatar synchronization measured with a **coincident HEAD "slate"**: at each audio
+chirp the speaker also broadcasts exactly one discrete `#avatar-HEAD` pose packet (the bot's
+head is otherwise static, so every `#avatar-HEAD` packet is one slate). For each chirp the
+runner pairs, at a given listener, the chirp detection with the HEAD packet from the **same
+slate** (linked sender-side by `head-slate-emit`). This compares the audio and avatar paths
+against a *shared sender instant*, rather than against a free-running pose stream.
+
 | Column | Meaning |
 |---|---|
-| `speaker_client_id` | Speaker. |
-| `listener_client_id` | Listener. |
-| `t_chirp_recv_ms` | Time the chirp was detected at the listener. |
-| `t_pose_recv_ms` | Time the latest preceding `#avatar-HEAD` recv from the speaker arrived at the listener. |
-| `offset_ms` | `t_chirp_recv - t_pose_recv`. Signed: positive = audio lags pose. |
+| `speaker_client_id` | The `mode=speaker` client. |
+| `listener_client_id` | The detecting listener. |
+| `chirp_seq` | Speaker's chirp sequence index for this slate. |
+| `head_send_seq` | Per-channel send index of the slate's `#avatar-HEAD` packet. |
+| `t_chirp_emit_ms` | Speaker emit time of the chirp (server-time). |
+| `t_head_send_ms` | Speaker emit time of the coincident HEAD packet (server-time). |
+| `t_chirp_detect_ms` | Time the chirp was detected at the listener. |
+| `t_head_recv_ms` | Time the slate's HEAD packet arrived at the listener. |
+| `offset_ms` | `t_chirp_detect_ms - t_head_recv_ms`. Signed: positive = audio lags the head move. |
 
-A positive value means the listener heard the speaker's words after seeing the speaker's avatar move; a negative value means the audio reached them before the corresponding head motion. Tracks "lip-sync" quality between rooms and SFUs.
+A positive value means the listener saw the speaker's avatar head move before hearing the
+corresponding sound; negative means the audio arrived first. Because both
+`t_chirp_detect_ms` and `t_head_recv_ms` are measured on the **same listener**, `offset_ms`
+is a within-client difference and is immune to cross-machine clock-sync error. The
+sender-side `t_chirp_emit_ms` / `t_head_send_ms` columns (clock-converted) let you also
+derive the one-way audio vs. head latencies and the emit-corrected differential.
+
+The HEAD slate packets also appear in `pose-pairs.csv` under channel `#avatar-HEAD` (one-way
+HEAD transport latency), 1:1 with the chirps. Tracks "lip-sync" quality between rooms and SFUs.
 
 ## `rtc-stats.csv`
 

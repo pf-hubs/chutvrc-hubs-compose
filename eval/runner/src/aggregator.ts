@@ -293,64 +293,116 @@ export class Aggregator {
   }
 
   private _writeAudioAvatarOffset(idx: OffsetIndex) {
-    // For each chirp-detect (speaker, listener, t_chirp_recv), find the
-    // latest avatar-recv from same speaker at same listener with t<=t_chirp_recv.
-    // Use the RIG channel as the pose reference: avatar-sync-helper only
-    // broadcasts HEAD/LEFT/RIGHT when their transform changes, while RIG is
-    // sent every tick — so RIG is the only channel that gives a continuous
-    // "where is the avatar now" signal regardless of whether the user moves.
-    const POSE_CHANNEL = "#avatar-RIG";
+    // Audio↔avatar synchronization via a coincident HEAD "slate": the speaker emits one
+    // discrete #avatar-HEAD packet at each audio-chirp instant (see eval-probe
+    // sendHeadSlate). The bot's head is otherwise static, so every #avatar-HEAD packet is
+    // exactly one slate. We pair, per listener, the chirp detection with the HEAD packet
+    // from the same slate and report offset_ms = t_chirp_detect - t_head_recv. Both
+    // arrivals are timestamped on the SAME listener, so the offset is a within-client
+    // difference and is immune to cross-machine clock-sync error (unlike the per-leg
+    // one-way latencies, which span sender→listener).
+    const HEAD_CHANNEL = "#avatar-HEAD";
 
-    type Recv = { t_server: number };
-    const poseByPair = new Map<string, Recv[]>(); // source|listener -> sorted recvs
+    type Slate = { head_send_seq: number; t_head_send: number };
+    const slatesBySpeaker = new Map<string, Map<number, Slate>>(); // speaker -> (chirp_seq -> slate)
+    const chirpEmits = new Map<string, Map<number, number>>(); // speaker -> (chirp_seq -> t_emit)
+    const chirpDetects = new Map<string, number[]>(); // speaker|listener -> detect t_server[]
+    const headRecvs = new Map<string, Map<number, number>>(); // speaker|listener -> (head_send_seq -> t_recv)
+
+    const getInner = <V>(m: Map<string, Map<number, V>>, k: string) => {
+      let inner = m.get(k);
+      if (!inner) {
+        inner = new Map<number, V>();
+        m.set(k, inner);
+      }
+      return inner;
+    };
+
     for (const e of this._events) {
-      if (e.kind !== "avatar-recv") continue;
-      if (e.channel !== POSE_CHANNEL) continue;
-      const k = e.source_client_id + "|" + e.client_id;
-      const arr = poseByPair.get(k) || [];
-      arr.push({ t_server: idx.toServerMs(e.client_id, e.t_client_ms) });
-      poseByPair.set(k, arr);
+      if (e.kind === "head-slate-emit") {
+        getInner(slatesBySpeaker, e.client_id).set(e.chirp_seq, {
+          head_send_seq: e.head_send_seq,
+          t_head_send: idx.toServerMs(e.client_id, e.t_client_ms)
+        });
+      } else if (e.kind === "chirp-emit") {
+        getInner(chirpEmits, e.client_id).set(e.seq, idx.toServerMs(e.client_id, e.t_client_ms));
+      } else if (e.kind === "chirp-detect" && e.source_client_id) {
+        const k = e.source_client_id + "|" + e.client_id;
+        const arr = chirpDetects.get(k) || [];
+        arr.push(idx.toServerMs(e.client_id, e.t_client_ms));
+        chirpDetects.set(k, arr);
+      } else if (e.kind === "avatar-recv" && e.channel === HEAD_CHANNEL) {
+        getInner(headRecvs, e.source_client_id + "|" + e.client_id).set(
+          e.seq,
+          idx.toServerMs(e.client_id, e.t_client_ms)
+        );
+      }
     }
-    for (const arr of poseByPair.values()) arr.sort((a, b) => a.t_server - b.t_server);
+
+    // Match a listener's chirp-detect to the speaker's chirp-emit by time-window, same
+    // constants/rationale as _writeChirpPairs (window strictly < the 5 s chirp interval).
+    const CLOCK_TOLERANCE_MS = 50;
+    const PAIRING_WINDOW_MS = 4000;
 
     const headers = [
       "speaker_client_id",
       "listener_client_id",
-      "t_chirp_recv_ms",
-      "t_pose_recv_ms",
+      "chirp_seq",
+      "head_send_seq",
+      "t_chirp_emit_ms",
+      "t_head_send_ms",
+      "t_chirp_detect_ms",
+      "t_head_recv_ms",
       "offset_ms"
     ];
+
     this._streamCsv("audio-avatar-offset.csv", headers, (emit) => {
-      for (const e of this._events) {
-        if (e.kind !== "chirp-detect") continue;
-        if (!e.source_client_id) continue;
-        const t_chirp = idx.toServerMs(e.client_id, e.t_client_ms);
-        const k = e.source_client_id + "|" + e.client_id;
-        const poses = poseByPair.get(k) || [];
-        // Latest pose <= t_chirp via binary search.
-        let lo = 0;
-        let hi = poses.length - 1;
-        let best = -1;
-        while (lo <= hi) {
-          const mid = (lo + hi) >>> 1;
-          if (poses[mid].t_server <= t_chirp) {
-            best = mid;
-            lo = mid + 1;
+      for (const [dkey, detimes] of chirpDetects.entries()) {
+        const [speaker, listener] = dkey.split("|");
+        const slates = slatesBySpeaker.get(speaker);
+        const emitMap = chirpEmits.get(speaker);
+        const recvMap = headRecvs.get(dkey);
+        if (!slates || !emitMap || !recvMap) continue;
+
+        // Slate chirps that actually have a recorded chirp-emit time, sorted for the walk.
+        const emitList = Array.from(slates.keys())
+          .map(c => ({ chirp_seq: c, t_emit: emitMap.get(c) }))
+          .filter((x): x is { chirp_seq: number; t_emit: number } => x.t_emit !== undefined)
+          .sort((a, b) => a.t_emit - b.t_emit);
+        const detList = detimes.slice().sort((a, b) => a - b);
+
+        let i = 0;
+        let j = 0;
+        while (i < emitList.length && j < detList.length) {
+          const em = emitList[i];
+          const tDetect = detList[j];
+          const dt = tDetect - em.t_emit;
+          if (dt < -CLOCK_TOLERANCE_MS) {
+            j++;
+          } else if (dt > PAIRING_WINDOW_MS) {
+            i++;
           } else {
-            hi = mid - 1;
+            const slate = slates.get(em.chirp_seq)!;
+            const tHeadRecv = recvMap.get(slate.head_send_seq);
+            if (tHeadRecv !== undefined) {
+              emit(
+                [
+                  csvCell(speaker),
+                  csvCell(listener),
+                  String(em.chirp_seq),
+                  String(slate.head_send_seq),
+                  numCell(em.t_emit),
+                  numCell(slate.t_head_send),
+                  numCell(tDetect),
+                  numCell(tHeadRecv),
+                  numCell(tDetect - tHeadRecv)
+                ].join(",")
+              );
+            }
+            i++;
+            j++;
           }
         }
-        if (best < 0) continue;
-        const t_pose = poses[best].t_server;
-        emit(
-          [
-            csvCell(e.source_client_id),
-            csvCell(e.client_id),
-            numCell(t_chirp),
-            numCell(t_pose),
-            numCell(t_chirp - t_pose)
-          ].join(",")
-        );
       }
     });
   }

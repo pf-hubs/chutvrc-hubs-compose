@@ -35,12 +35,18 @@ but absolute claims do not.
 **Symptom.** `offset_ms` mean = 35,449; range 213 – 70,640 ms (~35 s mean,
 ~70 s max). Lip-sync offsets should be in the ±100 ms range.
 
-**Root cause.** Same as #1. The offset column joins `chirp-pairs` with the
-nearest preceding `#avatar-HEAD` recv; if chirp times are off by ~1.5 s, the
-preceding-pose match cascades into nonsense.
+**Root cause.** Two parts. (1) The original offset joined each chirp with the
+*nearest preceding* free-running pose recv, so any chirp-timing error (issue #1)
+cascaded into the pose match. (2) Even with correct chirp timing, a nearest-pose
+join shares no sender instant between the audio and the pose, so it measured pose
+*staleness*, not a true cross-modal skew.
 
-**Action.** No separate fix — falls out of #1 once chirp pairing is correct.
-Re-validate with a smoke run after #1 lands.
+**Status.** The offset is now computed from a **coincident HEAD "slate"**: the
+speaker emits one discrete `#avatar-HEAD` packet at each chirp instant, and the
+aggregator pairs `chirp-detect ⨝ that slate's HEAD recv` per listener (see
+`interpreting-results.md`). This eliminates part (2). It still depends on correct
+chirp emit↔detect pairing (issue #1), since `t_chirp_detect_ms` comes from that
+pairing — re-validate with a smoke run.
 
 ## 3. Detection magnitudes near the silence floor
 
@@ -78,6 +84,12 @@ real head/hand motion. Expected behaviour for the smoke; needs re-confirmation
 once a measured cell with real devices is run.
 
 **Action.** Note only. No code fix.
+
+**Update.** The eval probe now makes the *speaker* emit a deliberate
+`#avatar-HEAD` "slate" packet once per chirp (for `audio-avatar-offset.csv`), so
+speaker→listener `#avatar-HEAD` rows in `pose-pairs.csv` are no longer sparse
+(≈ one per chirp). `#avatar-LEFT`/`#avatar-RIGHT` remain sparse for headless bots
+as described.
 
 **Verification.** First measured cell that includes a real headset device
 should produce HEAD/LEFT/RIGHT row counts comparable to the device's pose
