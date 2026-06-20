@@ -53,6 +53,8 @@ export class ReportServer {
   private _speakerCount = 0;
   private _labelToClient = new Map<string, ClientId>();
   private _started = false;
+  private _onConnectCb: ((rec: ClientRecord) => void) | null = null;
+  private _onDisconnectCb: ((clientId: ClientId) => void) | null = null;
 
   constructor(runId: string, port: number, onEvent: (event: EventRow) => void) {
     this._runId = runId;
@@ -79,19 +81,36 @@ export class ReportServer {
   }
 
   stop() {
-    for (const ws of this._wsToClient.keys()) {
-      try {
-        ws.send(JSON.stringify({ type: "stop" } as RunnerToProbeMsg));
-      } catch (e) {
-        // ignore
-      }
-    }
+    this.broadcast({ type: "stop" });
     this._wss.close();
     if (this._httpsServer) this._httpsServer.close();
   }
 
+  // Send a control message to every connected probe. Used for "go" and
+  // "stop+disconnect" in manual-start mode, and for the plain "stop" issued
+  // from this.stop() on shutdown.
+  broadcast(msg: RunnerToProbeMsg) {
+    const json = JSON.stringify(msg);
+    for (const ws of this._wsToClient.keys()) {
+      try {
+        ws.send(json);
+      } catch (e) {
+        // ignore — probe will reconnect or has gone away
+      }
+    }
+  }
+
   clients(): ClientRecord[] {
     return Array.from(this._clients.values());
+  }
+
+  // CLI uses these to refresh the live "waiting for clients" list in
+  // manual-start mode. Idempotent: setting twice replaces the previous cb.
+  onConnect(cb: (rec: ClientRecord) => void): void {
+    this._onConnectCb = cb;
+  }
+  onDisconnect(cb: (clientId: ClientId) => void): void {
+    this._onDisconnectCb = cb;
   }
 
   private _onConnection(ws: WebSocket, req: IncomingMessage) {
@@ -118,6 +137,7 @@ export class ReportServer {
         const rec = this._clients.get(clientId);
         if (rec) rec.disconnected_at = Date.now();
         console.log("[runner] WS close client_id=" + clientId);
+        if (this._onDisconnectCb) this._onDisconnectCb(clientId);
       } else {
         console.log("[runner] WS close (no hello received) ws_id=" + wsId);
       }
@@ -213,6 +233,7 @@ export class ReportServer {
         msg.sfu_kind
     );
     if (warnings.length > 0) for (const w of warnings) console.warn("[runner]  warn:", w);
+    if (this._onConnectCb) this._onConnectCb(record);
   }
 
   private _handleClockPing(ws: WebSocket, msg: ClockPingMsg) {

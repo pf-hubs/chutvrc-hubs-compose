@@ -14,7 +14,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { ReportServer } from "./report-server";
+import * as readline from "readline";
+import { ReportServer, ClientRecord } from "./report-server";
 import { DialogPoller } from "./dialog-poll";
 import { HostStatsCollector, HostStatsMode } from "./host-stats";
 import { Aggregator } from "./aggregator";
@@ -30,6 +31,7 @@ type Args = {
   container_filter: string[];
   public_url: string | null;
   k8s_nodes: string[];
+  manual_start: boolean;
 };
 
 function parseDuration(s: string): number {
@@ -78,7 +80,8 @@ function parseArgs(argv: string[]): Args {
     k8s_nodes: (args["k8s-nodes"] || process.env.EVAL_K8S_NODES || "")
       .split(",")
       .map(s => s.trim())
-      .filter(Boolean)
+      .filter(Boolean),
+    manual_start: "manual-start" in args
   };
 }
 
@@ -123,14 +126,15 @@ function start() {
 
   console.log("=========================================================");
   console.log("chutvrc eval runner");
-  console.log("  run_id     : " + runId);
-  console.log("  label      : " + args.label);
-  console.log("  room       : " + args.room);
-  console.log("  duration   : " + args.duration_ms + " ms");
-  console.log("  ws port    : " + args.port);
-  console.log("  out_dir    : " + outDir);
-  console.log("  dialog_url : " + (args.dialog_url || "(none)"));
-  console.log("  host-stats : " + args.host_stats);
+  console.log("  run_id      : " + runId);
+  console.log("  label       : " + args.label);
+  console.log("  room        : " + args.room);
+  console.log("  duration    : " + args.duration_ms + " ms");
+  console.log("  ws port     : " + args.port);
+  console.log("  out_dir     : " + outDir);
+  console.log("  dialog_url  : " + (args.dialog_url || "(none)"));
+  console.log("  host-stats  : " + args.host_stats);
+  console.log("  manual-start: " + args.manual_start);
   console.log("---------------------------------------------------------");
   console.log("Real-device join URL (replace <device> with a unique tag):");
   console.log("  " + buildJoinUrl(args.room, args.public_url, args.port));
@@ -154,6 +158,13 @@ function start() {
   });
   host.start();
 
+  // Track when the actual test window started/ended. In auto (bot) mode
+  // test_start_ts is the same as the runner process start time. In
+  // manual-start mode it's set when the operator presses Enter.
+  let test_start_ts: number | null = null;
+  let test_end_ts: number | null = null;
+  let started_utc: string = new Date().toISOString();
+
   const stopAll = () => {
     console.log("[runner] stopping…");
     server.stop();
@@ -161,28 +172,23 @@ function start() {
     host.stop();
   };
 
-  process.on("SIGTERM", () => {
-    stopAll();
-    finalize();
-  });
-  process.on("SIGINT", () => {
-    stopAll();
-    finalize();
-  });
-
-  setTimeout(() => {
-    stopAll();
-    finalize();
-  }, args.duration_ms);
-
   const finalize = () => {
+    // If the test was cut short — SIGINT/SIGTERM after `go` but before the
+    // duration elapsed — close the window at the current instant so the
+    // aggregator still has a valid [start, end] to filter by. If the test
+    // never started (manual mode, Ctrl-C before Enter) test_start_ts stays
+    // null and the aggregator skips windowing.
+    if (test_start_ts !== null && test_end_ts === null) test_end_ts = Date.now();
     const clients = server.clients();
-    aggregator.finalize(clients);
+    aggregator.finalize(clients, test_start_ts, test_end_ts);
     const manifest = {
       run_id: runId,
       label: args.label,
-      started_utc: new Date().toISOString(),
+      started_utc,
       duration_ms: args.duration_ms,
+      test_start_ts,
+      test_end_ts,
+      manual_start: args.manual_start,
       room: args.room,
       dialog_url: args.dialog_url,
       host_stats: args.host_stats,
@@ -206,6 +212,115 @@ function start() {
     console.log("[runner] run.json written");
     process.exit(0);
   };
+
+  process.on("SIGTERM", () => {
+    stopAll();
+    finalize();
+  });
+  process.on("SIGINT", () => {
+    stopAll();
+    finalize();
+  });
+
+  // beginTest: send `go` to all probes, start the duration timer, schedule
+  // the stop+disconnect+finalize sequence when the duration elapses. Used
+  // immediately (auto mode) or when Enter is pressed (manual mode).
+  const beginTest = () => {
+    test_start_ts = Date.now();
+    started_utc = new Date().toISOString();
+    server.broadcast({
+      type: "go",
+      t_server_ms: test_start_ts,
+      test_duration_ms: args.duration_ms
+    });
+    console.log(
+      "[runner] sent go; test running for " + Math.round(args.duration_ms / 1000) + "s"
+    );
+
+    setTimeout(() => {
+      test_end_ts = Date.now();
+      // Tell every probe to leave the room cleanly (Hubs will show
+      // ExitedRoomScreen with the refresh button). Wait ~3 s so the SFU
+      // disconnect and React unmount have time to land before we close
+      // the WS server underneath the probes.
+      server.broadcast({ type: "stop", disconnect: true });
+      console.log("[runner] sent stop+disconnect to all probes; waiting 3 s for cleanup…");
+      setTimeout(() => {
+        stopAll();
+        finalize();
+      }, 3000);
+    }, args.duration_ms);
+  };
+
+  if (args.manual_start) {
+    // PHASE 1 — WAIT. Render a live list of connected clients and prompt
+    // the operator to press Enter when ready. Re-render on any
+    // connect/disconnect (debounced ~150 ms so a burst of joins doesn't
+    // spam the terminal). Clock-sync and the hello handshake run in this
+    // phase (probe side decides what to defer); chirp emit / detection /
+    // rtc-stats are deferred until the go broadcast.
+    console.log("");
+    console.log("[runner] manual-start: waiting for clients…");
+    console.log("[runner] open the join URL on each device, then press Enter to begin.");
+    console.log("");
+
+    let refreshScheduled = false;
+    const render = () => {
+      refreshScheduled = false;
+      const clients = server.clients().filter(c => c.disconnected_at === null);
+      const labels = clients.map(c => c.label + " (" + c.mode + ")").join(", ");
+      console.log(
+        "[runner] [" + clients.length + " connected] " + (labels || "(none yet)")
+      );
+    };
+    const scheduleRender = () => {
+      if (refreshScheduled) return;
+      refreshScheduled = true;
+      setTimeout(render, 150);
+    };
+    server.onConnect((rec: ClientRecord) => {
+      console.log("[runner] + " + rec.label + " (" + rec.mode + ")");
+      scheduleRender();
+    });
+    server.onDisconnect((cid: string) => {
+      console.log("[runner] - client_id=" + cid);
+      scheduleRender();
+    });
+
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.once("line", () => {
+      rl.close();
+      const clients = server.clients().filter(c => c.disconnected_at === null);
+      if (clients.length < 2) {
+        console.warn(
+          "[runner] only " +
+            clients.length +
+            " client(s) connected — need at least 1 speaker + 1 listener. Aborting."
+        );
+        stopAll();
+        process.exit(1);
+        return;
+      }
+      const speakers = clients.filter(c => c.mode === "speaker");
+      if (speakers.length === 0) {
+        console.warn(
+          "[runner] no mode=speaker client connected; chirp pairs will be empty. Aborting."
+        );
+        stopAll();
+        process.exit(1);
+        return;
+      }
+      // PHASE 2 — GO.
+      beginTest();
+    });
+  } else {
+    // Bot-mode / legacy behavior: probes auto-arm on ack-hello (via the
+    // `eval_auto_start=1` query param appended by run-bot.js). We start the
+    // duration timer immediately. We still send `go` to every connected
+    // probe so any client started without the auto-start query param still
+    // picks up the timing.
+    beginTest();
+  }
 }
 
 function medianCi(arr: number[]): number | null {
@@ -236,6 +351,10 @@ function main() {
       console.log(
         "               [--public-url wss://eval.example.com] [--k8s-nodes node1,node2]"
       );
+      console.log("               [--manual-start]");
+      console.log("  --manual-start  Wait for the operator to press Enter before");
+      console.log("                  starting the duration timer; useful for real-device");
+      console.log("                  runs where you bring up browsers manually.");
       process.exit(cmd ? 1 : 0);
   }
 }

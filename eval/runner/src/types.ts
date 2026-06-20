@@ -118,6 +118,24 @@ export type WarningMsg = {
   reason: string;
 };
 
-export type StopMsg = { type: "stop" };
+// Sent by the runner when the operator presses Enter in manual-start mode (or
+// immediately on ack-hello when the legacy bot=auto-start query param is set).
+// The probe uses this to start the chirp injector, chirp detector, and RTC
+// stats collector. test_duration_ms is informational so the probe can log a
+// reasonable "test is N seconds" message.
+export type GoMsg = {
+  type: "go";
+  t_server_ms: number;
+  test_duration_ms: number;
+};
 
-export type RunnerToProbeMsg = AckHelloMsg | ClockPongMsg | WarningMsg | StopMsg;
+// disconnect: true means the runner is ending the test and wants every probe
+// to leave its Hubs room (so the user lands on ExitedRoomScreen with the
+// refresh button). When omitted/false, semantics are the legacy "just stop
+// the reporting sink" used by bot back-compat runs.
+export type StopMsg = {
+  type: "stop";
+  disconnect?: boolean;
+};
+
+export type RunnerToProbeMsg = AckHelloMsg | ClockPongMsg | WarningMsg | StopMsg | GoMsg;

@@ -71,8 +71,24 @@ export class Aggregator {
   // Apply each client's clock-offset trajectory to convert t_client_ms -> t_server_ms.
   // If no offset samples are recorded (clock-sync never completed), the row is
   // emitted with t_server_ms = NaN so it's visible but ignorable downstream.
-  finalize(clients: ClientRecord[]): void {
+  finalize(
+    clients: ClientRecord[],
+    windowStartMs: number | null = null,
+    windowEndMs: number | null = null
+  ): void {
     const offsetIndex = buildOffsetIndex(clients);
+
+    // Manual-start / windowed runs: drop everything outside the operator-defined
+    // test window [windowStartMs, windowEndMs] (server-time ms). In manual mode the
+    // bots auto-start chirping the moment they connect — before the operator presses
+    // Enter — so without this the warmup chirps and any post-duration teardown packets
+    // pollute every CSV. Events whose clock conversion failed (NaN server time) are
+    // kept: they carry no usable timestamp, so they belong to neither side of the
+    // window, and dropping them would silently erase a client whose clock-sync never
+    // completed.
+    if (windowStartMs !== null && windowEndMs !== null && windowEndMs > windowStartMs) {
+      this._applyWindow(offsetIndex, windowStartMs, windowEndMs);
+    }
 
     this._writeProbeEvents(offsetIndex);
     this._writePosePairs(offsetIndex);
@@ -83,6 +99,43 @@ export class Aggregator {
     this._writeHost();
 
     console.log("[runner] aggregator wrote CSVs to " + this._outDir);
+  }
+
+  // Filter all collected data to a server-time window. Mutates the in-memory
+  // arrays so every downstream _write* method (they all iterate these arrays)
+  // sees the windowed set consistently — pose/chirp pairing included. Logs the
+  // before/after counts so a mis-set window that empties the CSVs is obvious
+  // rather than silent.
+  private _applyWindow(idx: OffsetIndex, lo: number, hi: number): void {
+    const evBefore = this._events.length;
+    this._events = this._events.filter(e => {
+      const t = idx.toServerMs(e.client_id, e.t_client_ms);
+      return !isFinite(t) || (t >= lo && t <= hi);
+    });
+    const hostBefore = this._hostSamples.length;
+    this._hostSamples = this._hostSamples.filter(s => s.ts_ms >= lo && s.ts_ms <= hi);
+    const dlgBefore = this._dialogSnaps.length;
+    this._dialogSnaps = this._dialogSnaps.filter(s => s.ts_ms >= lo && s.ts_ms <= hi);
+    console.log(
+      "[runner] windowed to [" +
+        lo +
+        ", " +
+        hi +
+        "] (" +
+        Math.round((hi - lo) / 1000) +
+        "s): events " +
+        evBefore +
+        "->" +
+        this._events.length +
+        ", host " +
+        hostBefore +
+        "->" +
+        this._hostSamples.length +
+        ", dialog " +
+        dlgBefore +
+        "->" +
+        this._dialogSnaps.length
+    );
   }
 
   private _writeProbeEvents(idx: OffsetIndex) {
