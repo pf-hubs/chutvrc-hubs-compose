@@ -369,7 +369,7 @@ export class Aggregator {
     const slatesBySpeaker = new Map<string, Map<number, Slate>>(); // speaker -> (chirp_seq -> slate)
     const chirpEmits = new Map<string, Map<number, number>>(); // speaker -> (chirp_seq -> t_emit)
     const chirpDetects = new Map<string, number[]>(); // speaker|listener -> detect t_server[]
-    const headRecvs = new Map<string, Map<number, number>>(); // speaker|listener -> (head_send_seq -> t_recv)
+    const headRecvs = new Map<string, number[]>(); // speaker|listener -> sorted HEAD recv t_server[]
 
     const getInner = <V>(m: Map<string, Map<number, V>>, k: string) => {
       let inner = m.get(k);
@@ -394,10 +394,10 @@ export class Aggregator {
         arr.push(idx.toServerMs(e.client_id, e.t_client_ms));
         chirpDetects.set(k, arr);
       } else if (e.kind === "avatar-recv" && e.channel === HEAD_CHANNEL) {
-        getInner(headRecvs, e.source_client_id + "|" + e.client_id).set(
-          e.seq,
-          idx.toServerMs(e.client_id, e.t_client_ms)
-        );
+        const k = e.source_client_id + "|" + e.client_id;
+        const arr = headRecvs.get(k) || [];
+        arr.push(idx.toServerMs(e.client_id, e.t_client_ms));
+        headRecvs.set(k, arr);
       }
     }
 
@@ -405,6 +405,9 @@ export class Aggregator {
     // constants/rationale as _writeChirpPairs (window strictly < the 5 s chirp interval).
     const CLOCK_TOLERANCE_MS = 50;
     const PAIRING_WINDOW_MS = 4000;
+    // Half the 5 s slate interval: the nearest HEAD recv within this window of a
+    // chirp detect is unambiguously that slate's HEAD (|offset| is ~100-200 ms).
+    const HEAD_MATCH_WINDOW_MS = 2000;
 
     const headers = [
       "speaker_client_id",
@@ -423,8 +426,9 @@ export class Aggregator {
         const [speaker, listener] = dkey.split("|");
         const slates = slatesBySpeaker.get(speaker);
         const emitMap = chirpEmits.get(speaker);
-        const recvMap = headRecvs.get(dkey);
-        if (!slates || !emitMap || !recvMap) continue;
+        const recvList = headRecvs.get(dkey);
+        if (!slates || !emitMap || !recvList || recvList.length === 0) continue;
+        recvList.sort((a, b) => a - b);
 
         // Slate chirps that actually have a recorded chirp-emit time, sorted for the walk.
         const emitList = Array.from(slates.keys())
@@ -445,7 +449,15 @@ export class Aggregator {
             i++;
           } else {
             const slate = slates.get(em.chirp_seq)!;
-            const tHeadRecv = recvMap.get(slate.head_send_seq);
+            // Pair the slate's HEAD arrival by TIME (closest HEAD recv to this chirp
+            // detect, within the slate interval), NOT by exact recv-seq. The recv-seq
+            // counter desyncs from send-seq whenever any HEAD packet is lost or the
+            // startup pump HEAD isn't received 1:1, and because HEAD slates are ~5 s
+            // apart that desync inflates the latency by whole multiples of 5 s
+            // (observed: a 2-packet desync on Dialog produced a 10 s "offset"; the
+            // real value via time-pairing is ~126 ms). |offset| is always far below
+            // the 5 s spacing, so the nearest HEAD recv is unambiguous.
+            const tHeadRecv = closestWithin(recvList, tDetect, HEAD_MATCH_WINDOW_MS);
             if (tHeadRecv !== undefined) {
               emit(
                 [
@@ -576,6 +588,31 @@ function numCell(v: unknown): string {
   const n = Number(v);
   if (!isFinite(n)) return "";
   return String(n);
+}
+
+// Nearest value to `target` in an ascending-sorted array, or undefined if the
+// closest is farther than `windowMs`. Used for time-based HEAD-slate pairing.
+function closestWithin(sorted: number[], target: number, windowMs: number): number | undefined {
+  if (sorted.length === 0) return undefined;
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  let best: number | undefined;
+  let bestDist = Infinity;
+  for (const idx of [lo - 1, lo]) {
+    if (idx >= 0 && idx < sorted.length) {
+      const d = Math.abs(sorted[idx] - target);
+      if (d < bestDist) {
+        bestDist = d;
+        best = sorted[idx];
+      }
+    }
+  }
+  return bestDist <= windowMs ? best : undefined;
 }
 
 type OffsetIndex = {
