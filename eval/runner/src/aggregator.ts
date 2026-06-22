@@ -403,7 +403,12 @@ export class Aggregator {
 
     // Match a listener's chirp-detect to the speaker's chirp-emit by time-window, same
     // constants/rationale as _writeChirpPairs (window strictly < the 5 s chirp interval).
-    const CLOCK_TOLERANCE_MS = 50;
+    // The offset (detect - head_recv) is within-listener and immune to clock skew;
+    // this emit->detect walk only tags each chirp's slate. Tolerate up to 1 s of
+    // negative apparent latency so a reloaded/skewed client's rows aren't dropped
+    // (chirp-pairs keeps the strict 50 ms — cross-client audio delay is genuinely
+    // unreliable under that skew).
+    const CLOCK_TOLERANCE_MS = 1000;
     const PAIRING_WINDOW_MS = 4000;
     // Half the 5 s slate interval: the nearest HEAD recv within this window of a
     // chirp detect is unambiguously that slate's HEAD (|offset| is ~100-200 ms).
