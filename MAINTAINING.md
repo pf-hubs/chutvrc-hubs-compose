@@ -65,7 +65,52 @@ chutvrc の保守を引き継ぐ人のための手引きである。
 
 ### 3.1 上流 Hubs Foundation の取り込みと add-on API
 
-（未記入）
+**方針（2026-11-05 に決定、[ADR 0003](decisions/0003-cherry-pick-upstream-changes.md)）**：上流とは git の履歴も中身も一致させない。四半期に1回、上流の新しい PR を確認し、必要なものだけを cherry-pick で取り込む。上流 master の全面マージはしない。chutvrc は過去の取り込みを squash してきたため、git が見る共通祖先が古く（hubs では 2024-02）、全面マージは取り込み済みの変更まで衝突するからである。
+
+**手順**
+
+1. 各リポジトリに `upstream` リモート（Hubs-Foundation の hubs、reticulum、dialog、Spoke）を追加して fetch する。4リポジトリとも 2026-11-05 に追加済み。
+2. 新しい PR を一覧する：`git log --first-parent --format='%h %ad %s' --date=short <前回確認した最新>..upstream/master`
+3. 必要な PR を、develop から作った作業ブランチで `git cherry-pick -x -m 1 <PR のマージコミット>` で取り込む。件名は内容が分かるものに書き換え、本文の `(cherry picked from commit …)` は残す。コミットメッセージには日付、PR や文書の番号、分かりにくい略語を書かない。衝突は chutvrc の値を残して解く。
+4. 取り込んだもの、見送ったもの、確認した上流の最新をこの節に書く。
+5. develop への PR は merge commit で取り込む。上流の PR ごとのコミットが残り、出どころを追えるようにするため。
+
+**2026-11-05 の取り込み（1回目）**
+
+確認した上流の最新：hubs master `986d07a75`（2026-08-23）、hubs `addons` ブランチ `76e20a04f`（2025-07-29）、reticulum `10364b17`（2026-08-23）、spoke `6a198071`（2026-10-29）、dialog `a927823`（2026-10-29）。
+
+取り込んだもの。作業ブランチは各リポジトリの `feature/upstream-merge-2026-11`（develop への PR は未作成）。
+
+| リポジトリ | 上流 | 内容 | コミット |
+| --- | --- | --- | --- |
+| hubs | `addons` ブランチ（`e29d3f281`..`76e20a04f` の差分をパッチとして適用） | add-on API（`src/addons.ts`、`src/hubs.js`、`addons.json`）と、Behavior Graph が使う物理・メディアフレーム・テキスト・動画・同期の拡張 | `5568bf114`、`39a238ecb`（add-on を `c29b4f1` に固定、lockfile）、`3d6cbbe47`（`addons_config` の防護） |
+| hubs | #6575 | モバイル VR で PDF のページ送りが効かない不具合の修正 | `5353bbbc8` |
+| hubs | #6588 | reticulum.io を指す既定値の無効化（同じ置換を chutvrc 側の既定値にも適用） | `67cfe526c`、`6fe06328e` |
+| hubs | #6506 | 代名詞の区切りにカンマと空白も使えるようにする | `5ebe488ed` |
+| reticulum | #757 | reticulum.io を指す既定値の無効化（`config/dev.exs` の `dialog_hostname` の既定値も同様に） | `1dca9654` |
+| spoke | #1316 | reticulum.io を指す既定値の無効化 | `cde518a9` |
+
+あわせて、`evaluation-module` ブランチにあった LiveKit のミュートの修正 `b3105a26f`（ミュートしても音声が止まらない）を `fix/livekit-mic-mute` ブランチに切り出した（`cb3bcf6ac`）。
+
+見送ったものと理由：
+
+- hubs：#6569 pdf.js 4→5（chutvrc の 4.2.67 は CVE-2024-4367 を修正済み）、ESLint 9、Storybook 9、CI、pre-commit、ブランド表記、ツアーの文言、文書。
+- reticulum：#743 Icosa Gallery（CORS プロキシの書き換えを含み、外部 URL のメディア全体に影響する）、#750 Bamboo→Swoosh（今のメール送信で足りる）、#740 と #730（原因になった上流の変更が chutvrc にない）、Elixir 1.16 / OTP 25（後回し）、Discord、CI、ブランド表記、JSON-LD。
+- spoke：#1301 Icosa Gallery（reticulum #743 と組）、#1317 Node 22（後回し）。
+- dialog：Node 24（後回し）、CI、ブランド表記。取り込んだものはない。
+
+add-on API について：
+
+- Behavior Graph の add-on（`hubs-behavior-graphs-addon`）はリポジトリに `dist` を含まず、`npm install` 時に `prepare` で webpack ビルドされる。`@types/hubs` は add-on 自身の lockfile で固定されている。
+- add-on は bitECS ローダー（newLoader）のルームでしか有効にならない。chutvrc の機能を add-on にするのは、chutvrc の機能が bitECS ローダーで動くことを確かめた後にする。
+- 管理画面の `features.addons_config` と `features.bitecs_loader` は空のままにする。空なら add-on は無効、ローダーは旧ローダーになる。ルーム設定で add-on と bitECS ローダーを有効にしたルームだけで Behavior Graph が動く。
+- `/duck` のチャットコマンドは、上流が duck の add-on に移したため使えなくなった（duck の add-on は入れていない）。
+- 上流の add-on API（`src/addons.ts`）には次の不具合がある。上流には報告していない。
+  - `registerSystem` の `getNextIdx` の比較関数に `return` がなく、`order` が無視される。各システムは枠の末尾の1つ手前に入るので、最初に登録したものが最後に動く。直していない。
+  - `order` が 300〜399 のシステムが postPhysics の枠に入り、beforeMatricesUpdate の枠は使われない。Behavior Graph の add-on は10個のシステムをすべて 300 で登録しているので、この影響を受ける。直していない。Blender 製グラフの互換試験の後に、直すかを決める。
+  - `getAddonConfig` は `features.addons_config` をオブジェクトとして扱うが、reticulum は `theme.themes` 以外の JSON 型の設定を文字列で渡す。chutvrc 側で文字列なら parse するようにした（`3d6cbbe47`）。
+
+未了：コンテナー内での `npm run lint` とビルド、動作確認（実装計画の確認項目）、develop への PR、hubs と reticulum の `catchup-202510` ブランチの整理（タグを付けて削除）。
 
 ### 3.2 compose とセットアップスクリプト
 
