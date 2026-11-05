@@ -204,6 +204,9 @@ Whether or not to commit the edited `bin/init` to your own fork of
   workflow**. Kept only for historical reference.
 - [`decisions/`](decisions/) — architectural decision records for changes that
   affect the structure or interfaces of the project.
+- [`MAINTAINING.md`](MAINTAINING.md) — handover notes for whoever maintains
+  chutvrc and its demo server (in Japanese). Not needed for setting up your
+  own instance.
 
 ---
 
