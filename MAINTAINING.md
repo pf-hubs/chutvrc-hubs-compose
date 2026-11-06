@@ -109,8 +109,9 @@ add-on API について：
   - `registerSystem` の `getNextIdx` の比較関数に `return` がなく、`order` が無視される。各システムは枠の末尾の1つ手前に入るので、最初に登録したものが最後に動く。直していない。
   - `order` が 300〜399 のシステムが postPhysics の枠に入り、beforeMatricesUpdate の枠は使われない。Behavior Graph の add-on は10個のシステムをすべて 300 で登録しているので、この影響を受ける。直していない。Blender 製グラフの互換試験の後に、直すかを決める。
   - `getAddonConfig` は `features.addons_config` をオブジェクトとして扱うが、reticulum は `theme.themes` 以外の JSON 型の設定を文字列で渡す。chutvrc 側で文字列なら parse するようにした（`3d6cbbe47`）。
+- 上流の `addons` ブランチの差分には、add-on API のほかにも不具合があった。レビューで見つかった次の 5 件は chutvrc 側で直した（上流には報告していない）：旧ローダーの `tags` が `Holdable` の有効フラグを立てないので掴めない（`c388c625c`）、ネットワーク同期するテキストと動画の文字列 ID が 8 ビット（`5a1b16061`）、テキストと動画の保存・復元で文字列と ID の変換が二重（`39ac66330`。`write()` の修正はメディアフレームの復元にも及ぶ）、受信側の動画の loop 判定が autoplay のビットを見る（`844b78f83`）、動画の URL を変えた後に再読み込みが止まらない（`f6de53c0a`）。取り込んだコードを疑うときは `git diff upstream/addons -- <ファイル>` で上流との差分を見る。差分がなければ上流の不具合。
 
-未了：コンテナー内での `npm run lint` とビルド、動作確認（実装計画の確認項目）、develop への PR、hubs と reticulum の `catchup-202510` ブランチの整理（タグを付けて削除）。
+未了：コンテナー内での `npm run lint` とビルド、動作確認（実装計画の確認項目。レビュー後の修正では特に、旧ローダーで掴めることと、ピン留めしたテキスト・動画・メディアフレームの復元）、develop への PR、hubs と reticulum の `catchup-202510` ブランチの整理（タグを付けて削除）。
 
 ### 3.2 compose とセットアップスクリプト
 
