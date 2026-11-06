@@ -109,8 +109,9 @@ add-on API について：
   - `registerSystem` の `getNextIdx` の比較関数に `return` がなく、`order` が無視される。各システムは枠の末尾の1つ手前に入るので、最初に登録したものが最後に動く。直していない。
   - `order` が 300〜399 のシステムが postPhysics の枠に入り、beforeMatricesUpdate の枠は使われない。Behavior Graph の add-on は10個のシステムをすべて 300 で登録しているので、この影響を受ける。直していない。Blender 製グラフの互換試験の後に、直すかを決める。
   - `getAddonConfig` は `features.addons_config` をオブジェクトとして扱うが、reticulum は `theme.themes` 以外の JSON 型の設定を文字列で渡す。chutvrc 側で文字列なら parse するようにした（`3d6cbbe47`）。
+- 上流の `addons` ブランチの差分には、add-on API のほかにも不具合があった。レビューで見つかった次の 5 件は chutvrc 側で直した（上流には報告していない）：旧ローダーの `tags` が `Holdable` の有効フラグを立てないので掴めない（`c388c625c`）、ネットワーク同期するテキストと動画の文字列 ID が 8 ビット（`5a1b16061`）、テキストと動画の保存・復元で文字列と ID の変換が二重（`39ac66330`。`write()` の修正はメディアフレームの復元にも及ぶ）、受信側の動画の loop 判定が autoplay のビットを見る（`844b78f83`）、動画の URL を変えた後に再読み込みが止まらない（`f6de53c0a`）。取り込んだコードを疑うときは `git diff upstream/addons -- <ファイル>` で上流との差分を見る。差分がなければ上流の不具合。
 
-未了：コンテナー内での `npm run lint` とビルド、動作確認（実装計画の確認項目）、develop への PR、hubs と reticulum の `catchup-202510` ブランチの整理（タグを付けて削除）。
+未了：コンテナー内での `npm run lint` とビルド、動作確認（実装計画の確認項目。レビュー後の修正では特に、旧ローダーで掴めることと、ピン留めしたテキスト・動画・メディアフレームの復元）、develop への PR、hubs と reticulum の `catchup-202510` ブランチの整理（タグを付けて削除）。
 
 ### 3.2 compose とセットアップスクリプト
 
@@ -134,15 +135,15 @@ add-on API について：
 - `media-session.ts`：リモートの MediaStream の台帳と `getMediaStream` の保留、ローカルトラック（マイク・カメラ・画面共有）の台帳、マイクの状態。
 - `sfu-adapter.ts`：基底。`disconnect()` の順序はここに1か所で書いてある（接続を閉じる → ローカルトラックの unpublish（停止はしない） → 保留の reject と台帳の消去 → 中継キューの消去 → アバター同期の停止と相手のアバターの削除 → ハンドラーの後始末）。
 - `dialog-adapter.ts`、`livekit-adapter.ts`、`sora-adapter.ts`：SFU ごとのドライバー。
-- `switch-sfu.ts`：ルーム設定で SFU が変わったとき（`hub_refresh`）に、再読み込みなしで切り替える。
+- `switch-sfu.ts`：ルーム設定で SFU が変わったとき（`hub_refresh`）に、再読み込みなしで切り替える。ローカルのストリーム（コンテンツヒント込み）、マイクの状態、録画は `SfuSession.connect` が旧アダプターから新アダプターに引き継ぐ。
 
 **新しい SFU を足すとき**：`sfu-types.ts` の列挙と reticulum の `hub.sfu` の値、管理画面とルーム設定の選択肢を合わせ、`SfuConfig` に `kind` を1つ足し、`SfuAdapter` を継承して abstract メソッドを実装する：`connect(config)`、`closeConnection()`、`sendData(label, bytes, spec)`、`publishTrack` / `replaceTrack` / `unpublishTrack`、`setMicEnabled` / `micEnabled`、`kick` / `block` / `unblock`、`isConnected`、`isBridgeChannelReady`。受信したトラックは `media.addRemoteTrack`、受信したデータは `bus.receive(label, bytes)` に渡す。最後に `adapter-factory.ts` に登録する。
 
 **SFU ごとの差**：マイクのミュートは Dialog が producer の pause、LiveKit が track の mute、Sora が `track.enabled`。LiveKit は `connect()` の中で自分でマイクを取得して publish する。`getMediaStream` の 30 秒のタイムアウトは LiveKit だけ。姿勢の `#avatar-*` チャンネルは LiveKit だけ unreliable で、Dialog と Sora は既定（reliable、ordered）のまま。
 
-**2026-11 の整理で直した不具合**：Dialog のホスト変更時の例外、LiveKit の再接続のリーク、マイクの二重 publish、意図した切断の後の再接続、Dialog の記録によるメモリ増、公開講演の送信側が LiveKit で接続できない、ルーム移動の後に旧ルームのアバターが残る（Dialog と Sora）、ルーム設定の SFU 切替が在室者に反映されない。
+**2026-11 の整理で直した不具合**：Dialog のホスト変更時の例外、LiveKit の再接続のリーク、マイクの二重 publish、意図した切断の後の再接続、Dialog の記録によるメモリ増、公開講演の送信側が LiveKit で接続できない、ルーム移動の後に旧ルームのアバターが残る（Dialog と Sora）、ルーム設定の SFU 切替が在室者に反映されない。レビュー後に 2 件追加：LiveKit の切断と再接続で公開中のトラック（`media-devices-manager` のマイク）が止まる（`Room.disconnect(false)`、`a57b21064`）、SFU 切替でストリーム・マイク状態・録画が引き継がれない（`cb03b7ea0`）。
 
-**残っている既知の問題**：Sora のミュートが `track.enabled` だけで無音を送り続けること、Sora で画面共有とカメラが同じ video トラックを使うこと（確認できる環境がないため据え置き）。
+**残っている既知の問題**：Sora のミュートが `track.enabled` だけで無音を送り続けること、Sora で画面共有とカメラが同じ video トラックを使うこと（確認できる環境がないため据え置き）。SFU 切替で作り直されるのは `APP.sfu` のアダプターだけで、切替前に始めた公開講演のセッション（送信・鏡・代理）は旧サーバーのまま。
 
 **確認**：`npm run check`（tsc）はホストでも動く。`npm run lint` と `npm run build` はコンテナーで行う。動作確認の項目は実装計画 `chutvrc_sfu-avatar-refactor-plan_2026-11.md` の5節（Dialog と LiveKit で確認する。Sora は環境がない）。
 
