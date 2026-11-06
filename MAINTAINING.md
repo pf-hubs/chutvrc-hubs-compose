@@ -152,11 +152,11 @@ add-on API について：
 **構成（2026-11 の整理後。[ADR 0005](decisions/0005-avatar-pose-format-and-ik.md)）**。hubs の `src/avatar/` にある。
 
 - `pose/`：`PoseStore`（`APP.avatarPoses`、ページに1つ。clientId → `TrackedPose`（rig、頭、両手の位置と回転、追跡中ビット、VR か、アニメ状態、通し番号）と entity の対応）、`LocalPoseSource`（自分の姿勢を毎フレーム `#avatar-rig`、`#avatar-pov-node`、両コントローラーから読む）、NPC 用の書き込み口（`ai-chatbot` が使う）。
-- `net/`：`pose-codec-v1.ts`（今の通信形式）、`pose-codec-v0.ts`（旧形式の受信だけ）、`pose-sender.ts`（フレーム駆動、22 ms 以上あけて1パケット）、`interpolation-buffer.ts`（相手の姿勢を約 100 ms 遅らせて補間、外挿は 100 ms まで）、`pose-sync.ts`（セッションごとに1つ。チャンネルの送受信、`#avatarId` によるモデルの読み込み、記録）。
+- `net/`：`pose-codec-v1.ts`（今の通信形式）、`pose-codec-v0.ts`（旧形式の受信だけ）、`pose-sender.ts`（フレーム駆動、22 ms 以上あけて1パケット。送信側ごとに自分の `LocalPoseSource` を持ち、毎フレーム採取してから送る。ルームのセッションと公開講演の送信側がそれぞれ自分の clientId で送る）、`interpolation-buffer.ts`（相手の姿勢を約 100 ms 遅らせて補間、外挿は 100 ms まで）、`pose-sync.ts`（セッションごとに1つ。チャンネルの送受信、`#avatarId` によるモデルの読み込み、記録）。
 - `rig/`：`RigDescription`（骨の参照、休止姿勢、各部の長さ、目の位置。VRM は humanoid 拡張、それ以外は骨の名前のキーワードで対応づける）。
 - `avatar-model-manager.ts`：モデルの読み込み、entity の生成と削除、dispose、既定アバターへの代替。
 - `ik/`：新しいソルバー（純粋関数 `solveBody` と、骨に書く `applyToBones`）。`ik/legacy/`：旧ソルバー（CCD）。切替は設定画面の「Use the new avatar body solver (experimental)」（`preferences.avatarIkV2`、既定は旧）。
-- `avatar-systems.ts`：毎フレームの入口。`hubs-systems.ts` から1行で呼ばれ、自分の姿勢の採取 → 送信 → 補間 → ソルバーの順に動く。add-on の `beforeMatricesUpdate` と `scene.updateMatrixWorld()` の前に走る。
+- `avatar-systems.ts`：毎フレームの入口。`hubs-systems.ts` から1行で呼ばれ、送信側ごとの自分の姿勢の採取と送信 → 補間 → ソルバーの順に動く。add-on の `beforeMatricesUpdate` と `scene.updateMatrixWorld()` の前に走る。
 
 **通信形式 v1（`#avatar-pose`、全 SFU で unreliable・unordered）**：版 u8、フラグ u8（頭・左手・右手の追跡中、VR、アニメ状態）、通し番号 u16、送信時刻 ms u16、rig の位置 f32 × 3 と向き i16、頭と両手の位置（rig からの相対、mm の i16 × 3）、頭と両手の回転（smallest-three の 32 ビット）、送信者の clientId（UTF-8）。36 文字の ID で 86 バイト。clientId を残すのは、公開講演の中継が中継役の ID で再送信することと、Sora の受信に送信者情報がないため。受信は通し番号が古いものを捨てる（折り返し対応、2 秒届かなければ再同期）。回転の量子化誤差は最大 0.23°。旧形式（`#avatar-RIG/HEAD/LEFT/RIGHT`、`#isVR`、`#avatarAnimState`）は受信だけ残しており、次の四半期の上流追随のときに消す。
 
@@ -169,7 +169,7 @@ add-on API について：
 
 **対応表の足し方**：VRM の humanoid 拡張があればそれが優先される。それ以外のモデルは `rig/bone-map-keywords.ts` のキーワード表で骨を探す。新しい命名規則のモデルが来たら、この表にキーワードを足す。
 
-**2026-11 の整理で直した不具合**：ゆっくりした動きが送られない、再入室後に姿勢が送られない、採取タイマーの漏れ、手の向きが腕に遅れる、背骨と膝のねじれ（旧ソルバーのフラグ）、見つからない骨で予約済み entity を消していた、アバター削除時の map の漏れ、モデルが dispose されない。
+**2026-11 の整理で直した不具合**：ゆっくりした動きが送られない、再入室後に姿勢が送られない、採取タイマーの漏れ、手の向きが腕に遅れる、背骨と膝のねじれ（旧ソルバーのフラグ）、見つからない骨で予約済み entity を消していた、アバター削除時の map の漏れ、モデルが dispose されない。レビュー後に 1 件追加：公開講演の送信側が姿勢を送らない（採取がルームのセッションだけだった。`0fcb2b5ab`）。
 
 **残っていること**：新しいソルバーを既定にするかは、ルームでの比較の後に決める（既定にしたら1リリース後に `ik/legacy/` を消す）。旧ソルバーの「前かがみで頭が傾きすぎる」は直していない（新ソルバーで直る）。歩行とハンドトラッキングの関節は未実装。
 
