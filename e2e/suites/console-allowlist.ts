@@ -8,7 +8,7 @@ export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
     pattern: /Executing inline script violates the following Content Security Policy directive/,
     types: ["error"],
     reason:
-      "reticulum's content security policy does not list the hash of an inline script the development build's pages run; seen on every page load of the local stack since step 2 (TRIALS.md); whether develop shows it too is for the baseline run (plan step 5)"
+      "reticulum's content security policy does not list the hash of an inline script the development build's pages run; seen on every page load of the local stack since step 2 (TRIALS.md), on develop as well (BASELINE.md)"
   },
   {
     pattern: /^Warning: %s: Support for defaultProps will be removed from (function|memo) components/,
