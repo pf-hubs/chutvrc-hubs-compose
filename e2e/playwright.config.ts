@@ -31,7 +31,11 @@ export default defineConfig({
   timeout: 20 * 60_000,
   expect: { timeout: 30_000 },
 
-  reporter: [["list"], ["json", { outputFile: path.join(runDir, "results.json") }]],
+  // Checks the stack and writes run.json before any test
+  globalSetup: "./suites/global-setup.ts",
+
+  // report/reporter.ts completes each test's result.json and builds evidence/<run-id>/report.html
+  reporter: [["list"], ["json", { outputFile: path.join(runDir, "results.json") }], ["./report/reporter.ts"]],
 
   use: {
     baseURL: "https://hubs.local:4000",
