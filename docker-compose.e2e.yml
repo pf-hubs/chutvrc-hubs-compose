@@ -1,0 +1,107 @@
+# Extra services for the simulated-client tests in e2e/.
+# Start them after bin/up, one or more at a time:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d <service>
+# They join the network the main stack creates (mozilla-hubs), so bin/up must have run first.
+# PRIVATE_NETWORK_IP comes from .env, as for Dialog.
+
+services:
+  # Local LiveKit server in dev mode: API key "devkey", secret "secret".
+  # 7880 is signalling and the API, 7881/tcp and 7882/udp carry media. Media candidates
+  # announce PRIVATE_NETWORK_IP, so clients inside containers can reach them too.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "${PRIVATE_NETWORK_IP}"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    networks:
+      - mozilla-hubs
+
+  # TLS in front of livekit, so the HTTPS page can connect to wss://hubs.local:7443.
+  # Uses the mkcert certificate of the hubs client.
+  livekit-tls:
+    image: caddy:2.11.9-alpine
+    depends_on:
+      - livekit
+    ports:
+      - "7443:7443"
+    volumes:
+      - ./e2e/docker/livekit-tls.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./services/hubs/certs:/certs:ro
+    networks:
+      - mozilla-hubs
+
+  # Static files of e2e/assets/ (avatars, media, clips), reachable only from the
+  # containers on mozilla-hubs as http://assets/<path>.
+  assets:
+    image: caddy:2.11.9-alpine
+    expose:
+      - "80"
+    volumes:
+      - ./e2e/docker/assets.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./e2e/assets:/srv:ro
+    networks:
+      - mozilla-hubs
+
+  # The previous build of the client, served at https://hubs.local:8081.
+  # services/hubs-old is a git worktree of the hubs branch feature/sfu-refactor:
+  #   git -C services/hubs worktree add ../hubs-old feature/sfu-refactor
+  # The worktree is copied into a volume at each start (that branch does not change),
+  # so dependencies install and webpack watches on the Linux side, as for hubs-client.
+  # That build fixes its asset base to https://<INTERNAL_HOSTNAME>:8080/, which on the
+  # host is the current client; a browser opening 8081 has to send hubs.local:8080 to
+  # 127.0.0.1:8081 (Chromium: --host-resolver-rules="MAP hubs.local:8080 127.0.0.1:8081").
+  hubs-client-old:
+    build:
+      context: .
+      dockerfile: dockerfiles/hubs.Dockerfile
+    command:
+      - sh
+      - -ec
+      - |
+        tar -C /src --exclude=node_modules --exclude=.git -cf - . | tar -C /code -xf -
+        conditional-npm-ci
+        exec npm run local
+    environment:
+      INTERNAL_HOSTNAME: ${HUBS_HOST:-hubs.local}
+      RETICULUM_HOST: ${HUBS_HOST:-hubs.local}
+      CORS_PROXY_SERVER: "${HUBS_HOST:-hubs.local}:4000"
+    healthcheck:
+      start_period: 10m
+      test: ["CMD", "curl", "-fk", "https://localhost:8080"]
+    platform: linux/amd64
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./services/hubs-old:/src:ro
+      - hubs-old:/code
+    working_dir: /code
+    networks:
+      - mozilla-hubs
+
+  # The poor-network client: a Playwright browser server in a container whose link is
+  # shaped with: docker compose exec netclient tc qdisc replace dev eth0 root netem ...
+  # Tests connect with chromium.connect("ws://127.0.0.1:3100").
+  netclient:
+    build:
+      context: ./e2e/docker
+      dockerfile: netclient.Dockerfile
+    init: true
+    cap_add:
+      - NET_ADMIN
+    shm_size: "2gb"
+    extra_hosts:
+      - "hubs.local:host-gateway"
+    ports:
+      - "127.0.0.1:3100:3100"
+    networks:
+      - mozilla-hubs
+
+networks:
+  mozilla-hubs:
+    name: mozilla-hubs
+    external: true
+
+volumes:
+  hubs-old:

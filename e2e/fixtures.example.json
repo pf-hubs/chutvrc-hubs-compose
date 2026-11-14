@@ -1,0 +1,26 @@
+{
+  "host": "hubs.local",
+  "profilesDir": "profiles",
+  "accounts": {
+    "admin": { "email": "admin@example.com" },
+    "member1": { "email": "member1@example.com" },
+    "member2": { "email": "member2@example.com" }
+  },
+  "rooms": {
+    "dialog-main": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
+    "livekit-main": { "hubId": "", "owner": "admin", "mediaServer": "livekit" },
+    "switch": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
+    "move-target-dialog": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
+    "move-target-livekit": { "hubId": "", "owner": "admin", "mediaServer": "livekit" },
+    "speak-x": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
+    "listen-y": { "hubId": "", "owner": "member1", "mediaServer": "dialog" },
+    "listen-z": { "hubId": "", "owner": "member2", "mediaServer": "dialog" },
+    "nimpro": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "waypoints": ["N-impro-seat-01", "N-impro-seat-02", "N-impro-seat-03", "N-impro-seat-04", "N-impro-seat-05"]
+    },
+    "bitecs": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "bitecsClient": true, "addons": ["behavior-graph"] }
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+evidence/
+test-results/
+playwright-report/
+
+# Local settings and room ids of this machine (examples are committed next to them)
+.env.local
+fixtures.json
+
+# Signed-in browser profiles: they hold session cookies
+profiles/

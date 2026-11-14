@@ -1,0 +1,11 @@
+# Static files of e2e/assets/ (avatars, media, clips) for the containers on the
+# mozilla-hubs network, e.g. http://assets/avatars/sample.glb.
+{
+	admin off
+}
+
+:80 {
+	root * /srv
+	header Access-Control-Allow-Origin "*"
+	file_server browse
+}

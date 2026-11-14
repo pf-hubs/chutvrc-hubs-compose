@@ -1,0 +1,11 @@
+# TLS in front of the local LiveKit server, so the HTTPS page can use wss://hubs.local:7443.
+# The certificate is the mkcert one of services/hubs/certs (it covers hubs.local).
+{
+	admin off
+	auto_https disable_redirects
+}
+
+:7443 {
+	tls /certs/cert.pem /certs/key.pem
+	reverse_proxy livekit:7880
+}
