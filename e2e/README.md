@@ -13,6 +13,7 @@ Playwright drives several browsers on this PC, each with its own profile, as if 
 | `report/` | Builds `evidence/<run-id>/report.html` from a run's results and evidence |
 | `assets/` | Clips, media and avatars the clients use, each listed with its source and licence in `assets/SOURCES.md`. Served to the containers by the `assets` service |
 | `docker/` | Files for the extra services in `../docker-compose.e2e.yml`: the TLS proxy for LiveKit, the asset server and the poor-network client image |
+| `trials/` | Throwaway scripts of the step 2 trials, written up in `TRIALS.md` |
 
 Created on each machine and ignored by git: `node_modules/`, `evidence/` (one folder per run, with `results.json` and Playwright's output), `.env.local`, `fixtures.json`, `profiles/` (signed-in browser profiles).
 
@@ -29,10 +30,26 @@ cp fixtures.example.json fixtures.json   # room ids, filled in once the rooms ex
 The extra services start after `bin/up`, from the compose root:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d livekit livekit-tls
+docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d livekit livekit-tls assets netclient
 ```
 
-`hubs-client-old` needs a worktree of the old client first: `git -C services/hubs worktree add ../hubs-old feature/sfu-refactor`.
+| Service | Reached at |
+| --- | --- |
+| `livekit`, `livekit-tls` | `wss://hubs.local:7443` (key `devkey`, secret `secret`) |
+| `assets` | `https://hubs.local:3001/<path>` from the browsers (a port reticulum's content security policy allows), `http://assets/<path>` inside `mozilla-hubs` |
+| `netclient` | `chromium.connect("ws://127.0.0.1:3100")` or `webkit.connect(...)`, launch arguments in the `x-playwright-launch-options` header |
+| `hubs-client-old` | `https://hubs.local:8082`; its browser opens `https://hubs.local:8080/hub.html?hub_id=<id>` with `--host-resolver-rules="MAP hubs.local:8080 127.0.0.1:8082"` |
+
+`hubs-client-old` needs a worktree of the old client, with the certificate copied in, before its first start:
+
+```bash
+git -C services/hubs worktree add ../hubs-old feature/sfu-refactor
+cp -r services/hubs/certs services/hubs-old/
+```
+
+Reinstalling the client's dependencies (`conditional-npm-ci`) fails with `ENOTEMPTY` on `node_modules/.cache/storybook` while `hubs-storybook` runs, so stop it with `hubs-client` and `hubs-admin`. The script writes `package-lock.sha512` even when `npm ci` fails; after a failure run `rm -f package-lock.sha512 && npm ci` in the container instead.
+
+`TRIALS.md` records what the step 2 trials found; the scripts under `trials/` are the throwaway code behind it.
 
 ## Running
 

@@ -15,4 +15,6 @@ RUN npm init -y > /dev/null \
  && npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
 
 EXPOSE 3100
-CMD ["npx", "playwright", "run-server", "--port", "3100", "--host", "0.0.0.0"]
+# --unsafe lets a client pass launch arguments (the fake microphone and camera flags); without it the
+# server drops them. The port is published on 127.0.0.1 only.
+CMD ["npx", "playwright", "run-server", "--port", "3100", "--host", "0.0.0.0", "--unsafe"]

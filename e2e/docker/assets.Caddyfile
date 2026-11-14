@@ -1,11 +1,21 @@
-# Static files of e2e/assets/ (avatars, media, clips) for the containers on the
-# mozilla-hubs network, e.g. http://assets/avatars/sample.glb.
+# Static files of e2e/assets/ (avatars, media, clips): https://hubs.local:3001/<path> for the
+# browsers (mkcert certificate of services/hubs/certs), http://assets/<path> inside mozilla-hubs.
 {
 	admin off
+	auto_https disable_redirects
 }
 
-:80 {
+(files) {
 	root * /srv
 	header Access-Control-Allow-Origin "*"
 	file_server browse
+}
+
+:80 {
+	import files
+}
+
+:3001 {
+	tls /certs/cert.pem /certs/key.pem
+	import files
 }

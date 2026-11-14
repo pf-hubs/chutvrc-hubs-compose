@@ -32,26 +32,37 @@ services:
     networks:
       - mozilla-hubs
 
-  # Static files of e2e/assets/ (avatars, media, clips), reachable only from the
-  # containers on mozilla-hubs as http://assets/<path>.
+  # Static files of e2e/assets/ (avatars, media, clips) at https://hubs.local:3001/<path>, with the
+  # mkcert certificate. That URL form is the one to put in a profile's avatarId or paste into a room:
+  # the client fetches hubs.local URLs itself, and reticulum's content security policy lets pages
+  # reach https://hubs.local:3001 (not an arbitrary port). Through reticulum's CORS proxy the
+  # internal form http://assets/<path> answers 401, since the proxy refuses internal addresses;
+  # containers on mozilla-hubs can still use it directly.
   assets:
     image: caddy:2.11.9-alpine
     expose:
       - "80"
+    ports:
+      - "3001:3001"
     volumes:
       - ./e2e/docker/assets.Caddyfile:/etc/caddy/Caddyfile:ro
       - ./e2e/assets:/srv:ro
+      - ./services/hubs/certs:/certs:ro
     networks:
       - mozilla-hubs
 
-  # The previous build of the client, served at https://hubs.local:8081.
-  # services/hubs-old is a git worktree of the hubs branch feature/sfu-refactor:
+  # The previous build of the client, served at https://hubs.local:8082 (8081 is often taken
+  # by another local server and would shadow it on 127.0.0.1).
+  # services/hubs-old is a git worktree of the hubs branch feature/sfu-refactor, with the mkcert
+  # certificate of services/hubs copied in (certs/ is not in git):
   #   git -C services/hubs worktree add ../hubs-old feature/sfu-refactor
+  #   cp -r services/hubs/certs services/hubs-old/
   # The worktree is copied into a volume at each start (that branch does not change),
   # so dependencies install and webpack watches on the Linux side, as for hubs-client.
-  # That build fixes its asset base to https://<INTERNAL_HOSTNAME>:8080/, which on the
-  # host is the current client; a browser opening 8081 has to send hubs.local:8080 to
-  # 127.0.0.1:8081 (Chromium: --host-resolver-rules="MAP hubs.local:8080 127.0.0.1:8081").
+  # That build fixes its asset base to https://<INTERNAL_HOSTNAME>:8080/, which on the host is
+  # the current client. The old client's browser therefore sends hubs.local:8080 here and opens
+  # https://hubs.local:8080/hub.html?hub_id=<id>, so the page keeps the origin reticulum allows:
+  #   Chromium: --host-resolver-rules="MAP hubs.local:8080 127.0.0.1:8082"
   hubs-client-old:
     build:
       context: .
@@ -72,7 +83,7 @@ services:
       test: ["CMD", "curl", "-fk", "https://localhost:8080"]
     platform: linux/amd64
     ports:
-      - "8081:8080"
+      - "8082:8080"
     volumes:
       - ./services/hubs-old:/src:ro
       - hubs-old:/code
