@@ -846,13 +846,16 @@ async function mixedRoom(evidence: Evidence, server: MediaServer, withBots: bool
     // The bots load first (T4.12: a bot's page started after several clients were in a Dialog room did not take its files)
     for (const slot of ["h", "i"] as SlotName[]) bots.push(await launchBot({ hubId: hub.hubId, slot, evidence }));
   }
+  // The six Edge clients run headless here (Edge's headless mode renders on the GPU, TRIALS.md trial a): with six
+  // visible windows and the bots, Edge processes did not finish starting on this PC (their network service
+  // crashing over and over; two runs), while four windows alone start in about a second
   const seats: Seat[] = [
-    { identity: "admin", account: "admin", slot: "a", name: "A-desk", position: [0, 0] },
-    { identity: "member1", account: "member1", slot: "b", name: "B-desk", position: [640, 0] },
-    { identity: "quest1", slot: "d", name: "D-quest", profile: "QUEST", position: [0, 360] },
-    { identity: "quest2", slot: "e", name: "E-quest", profile: "QUEST", position: [640, 360] },
-    { identity: "android1", slot: "f", name: "F-android", profile: "ANDROID", position: [1290, 0] },
-    { identity: "android2", slot: "g", name: "G-android", profile: "ANDROID", position: [1500, 100] },
+    { identity: "admin", account: "admin", slot: "a", name: "A-desk", headless: true },
+    { identity: "member1", account: "member1", slot: "b", name: "B-desk", headless: true },
+    { identity: "quest1", slot: "d", name: "D-quest", profile: "QUEST", headless: true },
+    { identity: "quest2", slot: "e", name: "E-quest", profile: "QUEST", headless: true },
+    { identity: "android1", slot: "f", name: "F-android", profile: "ANDROID", headless: true },
+    { identity: "android2", slot: "g", name: "G-android", profile: "ANDROID", headless: true },
     // The IOS client's pilot is made in the page at its slot's frequency (1500 Hz for c)
     { identity: "iphone1", slot: "c", name: "C-iphone", profile: "IOS" }
   ];
@@ -861,7 +864,7 @@ async function mixedRoom(evidence: Evidence, server: MediaServer, withBots: bool
   const desksAndHeadsets = await startClients(evidence, seats.slice(0, 4));
   const people = [...desksAndHeadsets, ...(await startClients(evidence, seats.slice(4, 6))), iosClient];
   const [a, b, q1, q2, p1, p2, i] = people;
-  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); ${MIXED_MINUTES} minutes; ${withBots ? "with" : "without"} two BOT clients (bot path, headless)`);
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); ${MIXED_MINUTES} minutes; ${withBots ? "with" : "without"} two BOT clients (bot path, headless); the six Edge clients headless on the GPU (six visible windows with the bots did not start on this PC)`);
   await enterDevices(evidence, people, hub.hubId);
   const botEntry = await Promise.all(bots.map(x => waitBotEntered(x, 180_000).then(() => "entered").catch(e => `not entered: ${(e as Error).message.split("\n")[0]}`)));
   if (bots.length) evidence.note(`bots: ${bots.map((x, k) => `${x.name} ${botEntry[k]}`).join(", ")}`);

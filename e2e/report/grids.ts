@@ -23,6 +23,24 @@ async function ids(clients: Client[]) {
   return Promise.all(clients.map(c => within(readSession(c.page).then(s => s.clientId), 15_000, "")));
 }
 
+/**
+ * When a receiver does not hear a sender: what the sender's page says about its own outgoing audio (the
+ * client's audio context, the level of the audio it sends according to WebRTC's media-source statistics)
+ */
+async function senderAudio(sender: Client): Promise<string> {
+  return within(
+    sender.page.evaluate(async () => {
+      const ctx = (window as any).AFRAME?.THREE?.AudioContext?.getContext?.();
+      const pcs: RTCPeerConnection[] = ((window as any).__e2eConnections ?? []).map((e: any) => e.pc).filter((pc: RTCPeerConnection) => pc.connectionState !== "closed");
+      const levels: string[] = [];
+      for (const pc of pcs) (await pc.getStats()).forEach((s: any) => s.type === "media-source" && s.kind === "audio" && levels.push((s.audioLevel ?? 0).toFixed(4)));
+      return `sender's audio context ${ctx?.state ?? "?"}, outgoing levels ${levels.join("/") || "none"}`;
+    }),
+    10_000,
+    "sender not readable"
+  );
+}
+
 /** Who hears whom: every receiver against every other client as sender */
 export async function hearingGrid(clients: Client[], title = "Who hears whom", ms = 4000): Promise<Grid> {
   const clientIds = await ids(clients);
@@ -43,7 +61,8 @@ export async function hearingGrid(clients: Client[], title = "Who hears whom", m
         } else {
           const r = await within(heardPilot(receiver.page, clientIds[j], sender.pilotHz, CONTROL_HZ, ms), ms + 20_000, { ratio: 0, controlRatio: 0, peakDb: -Infinity, tracks: [], error: "timed out" });
           const ok = r.ratio >= PILOT_HEARD && r.controlRatio <= PILOT_SILENT;
-          cells[receiver.name][sender.name] = { status: ok ? "ok" : "ng", text: r.error ? r.error : `pilot ${r.ratio}`, data: r };
+          const why = ok || sender.profile === "BOT" ? "" : `; ${await senderAudio(sender)}`;
+          cells[receiver.name][sender.name] = { status: ok ? "ok" : "ng", text: (r.error ? r.error : `pilot ${r.ratio}`) + why, data: r };
         }
       }
     })
