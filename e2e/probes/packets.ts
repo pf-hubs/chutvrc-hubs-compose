@@ -21,6 +21,15 @@ export type PacketEntry = {
   c?: string;
   seq?: number;
   m?: string;
+  /**
+   * Payload size in bytes, from what the entry holds: a whole-body pose 50 + the client id, an old per-part
+   * transform 24 + the client id (the codecs' layouts), a text message its UTF-8 length
+   */
+  b?: number;
+  /** For #avatar-pose: the tracked bits, the VR flag and the rig position the packet carried */
+  tr?: number;
+  vr?: boolean;
+  p?: [number, number, number];
 };
 
 /**
@@ -48,13 +57,24 @@ export function takePacketLog(page: Page, stop = true): Promise<PacketEntry[]> {
     const bus = (window as any).APP?.sfu?.bus;
     if (!bus) return [];
     if (stop) bus.stopRecording();
+    const utf8 = new TextEncoder();
     return bus.takeRecording().map((e: any) => {
       const entry: any = { l: e.l, s: e.s, t: e.t };
       if (e.m && typeof e.m === "object") {
         entry.c = e.m.c;
         if (typeof e.m.seq === "number") entry.seq = e.m.seq;
+        const idBytes = typeof e.m.c === "string" ? utf8.encode(e.m.c).length : 0;
+        if (e.l === "#avatar-pose") {
+          entry.b = 50 + idBytes;
+          entry.tr = e.m.tracked;
+          entry.vr = e.m.isVR;
+          if (e.m.rig?.p) entry.p = [e.m.rig.p.x, e.m.rig.p.y, e.m.rig.p.z];
+        } else if (/^#avatar-(RIG|HEAD|LEFT|RIGHT)$/.test(e.l)) {
+          entry.b = 24 + idBytes;
+        }
       } else if (typeof e.m === "string") {
         entry.m = e.m.slice(0, 120);
+        entry.b = utf8.encode(e.m).length;
       }
       return entry;
     });
@@ -80,6 +100,9 @@ export type LabelSummary = {
   received: number;
   sentPerSecond: number;
   receivedPerSecond: number;
+  /** Payload bytes sent, and per second (entries without a size count nothing) */
+  sentBytes: number;
+  sentBytesPerSecond: number;
   /** Received entries per sender (pose packets carry the sender's id) */
   receivedBySender?: Record<string, number>;
 };
@@ -92,9 +115,11 @@ export function summarisePackets(entries: PacketEntry[], seconds?: number): Pack
   const span = seconds ?? (times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 1000 : 0);
   const byLabel: Record<string, LabelSummary> = {};
   for (const e of entries) {
-    const s = (byLabel[e.l] ??= { sent: 0, received: 0, sentPerSecond: 0, receivedPerSecond: 0 });
-    if (e.s === 1) s.sent++;
-    else {
+    const s = (byLabel[e.l] ??= { sent: 0, received: 0, sentPerSecond: 0, receivedPerSecond: 0, sentBytes: 0, sentBytesPerSecond: 0 });
+    if (e.s === 1) {
+      s.sent++;
+      s.sentBytes += e.b ?? 0;
+    } else {
       s.received++;
       if (e.c) {
         s.receivedBySender ??= {};
@@ -104,6 +129,7 @@ export function summarisePackets(entries: PacketEntry[], seconds?: number): Pack
   }
   for (const s of Object.values(byLabel)) {
     s.sentPerSecond = span > 0 ? +(s.sent / span).toFixed(1) : 0;
+    s.sentBytesPerSecond = span > 0 ? Math.round(s.sentBytes / span) : 0;
     s.receivedPerSecond = span > 0 ? +(s.received / span).toFixed(1) : 0;
   }
   return { seconds: +span.toFixed(1), byLabel };

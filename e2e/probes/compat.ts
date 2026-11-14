@@ -149,6 +149,8 @@ export const COMPAT_SHIM = `(() => {
         return {
           rig: { pos: vec(p.rig.pos), rot: vec(p.rig.rot) },
           head: { pos: vec(p.head.pos), rot: vec(p.head.rot) },
+          left: { pos: vec(p.leftHand.pos), rot: vec(p.leftHand.rot) },
+          right: { pos: vec(p.rightHand.pos), rot: vec(p.rightHand.rot) },
           seq: p.seq,
           tracked: p.tracked,
           isVR: p.isVR,
@@ -161,17 +163,35 @@ export const COMPAT_SHIM = `(() => {
       const rig = part("RIG");
       if (!rig) return null;
       const head = part("HEAD");
+      const left = part("LEFT");
+      const right = part("RIGHT");
       const vr = h._client2VrMode && h._client2VrMode.get(clientId);
       const anim = h._client2AnimState && h._client2AnimState.get(clientId);
       return {
         rig: { pos: vec(rig.pos), rot: vec(rig.rot) },
         head: { pos: vec(head && head.pos), rot: vec(head && head.rot) },
+        left: { pos: vec(left && left.pos), rot: vec(left && left.rot) },
+        right: { pos: vec(right && right.pos), rot: vec(right && right.rot) },
         seq: legacySeq(clientId, rig),
         tracked: null,
         isVR: vr === undefined ? null : !!vr,
         animState: anim === undefined ? null : anim,
         source: "per-part transforms"
       };
+    },
+    /**
+     * The own rig, head (#avatar-pov-node) and controllers as the scene has them (local transforms; the head
+     * and controllers are children of the rig): what the own pose is sampled from, on every build
+     */
+    ownObjects() {
+      const object = selector => {
+        const el = document.querySelector(selector);
+        return el && el.object3D;
+      };
+      const rig = object("#avatar-rig");
+      if (!rig) return null;
+      const part = o => (o ? { pos: vec(o.position), rot: vec(o.rotation), visible: !!o.visible } : null);
+      return { rig: part(rig), head: part(object("#avatar-pov-node")), left: part(object("#player-left-controller")), right: part(object("#player-right-controller")) };
     },
     /** Sends the own avatar announcement (#avatarId) again; false when there is no avatar sync */
     announceAvatar() {
