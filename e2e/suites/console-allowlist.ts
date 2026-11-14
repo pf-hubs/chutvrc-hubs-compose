@@ -17,12 +17,6 @@ export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
       "React's development-build deprecation notice for defaultProps (printed through console.error) on the client's and libraries' components; a notice, not a failure; listed in step 2 (TRIALS.md)"
   },
   {
-    pattern: /^net::ERR_ABORTED GET .*https:\/\/fonts\.gstatic\.com\//,
-    types: ["requestfailed"],
-    reason:
-      "a web font request of the home page cancelled by the browser when the harness goes on from the sign-in check to the room page; a cancellation, not a failed request"
-  },
-  {
     pattern: /status of 404 .*\/favicon\.ico/,
     types: ["error"],
     reason: "the local stack serves no favicon.ico"
@@ -32,5 +26,17 @@ export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
     types: ["error"],
     reason:
       "sends on data channels that are still connecting right after entry (the [e2e] send watch names them: #avatarId, #avatar-pose). Accepted here because the one that matters, the lost #avatarId, is judged by the avatar check of T1"
+  },
+  {
+    pattern: /status of 401 \(\)\s+https:\/\/hubs\.local:4000\/https:\/\/hubs\s*$/,
+    types: ["error"],
+    reason:
+      "a shared camera or screen is placed as hubs://clients/<id>/video; media-url-utils.js isHubsServer() prefixes a URL that does not start with http with https://, so the origin becomes https://hubs, and the CORS proxy refuses that host (401). Upstream code, the same on develop; the share itself works (T2.4)"
+  },
+  {
+    pattern: /^net::ERR_ABORTED (GET|HEAD) /,
+    types: ["requestfailed"],
+    reason:
+      "a request the page itself cancelled: a blob: URL whose element was removed (a stopped share or a placed object going away), a HEAD check of the room page, an image when the room is left, a web font when the harness goes on from the sign-in check to the room page; Chromium reports a cancelled request as failed, but nothing failed to load"
   }
 ];

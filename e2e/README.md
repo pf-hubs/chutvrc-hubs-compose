@@ -6,14 +6,14 @@ Playwright drives several browsers on this PC, each with its own profile, as if 
 
 | Folder | Contents |
 | --- | --- |
-| `clients/` | Starting and driving a client. `launch.ts`: the profile table (DESK so far; QUEST, ANDROID, IOS, OLD, BOT and the modifiers come with later steps), one Edge process and profile directory per client, launch flags, video, console capture. `signin.ts`: signing in without e-mail. `enter.ts`: the real entry UI. `input.ts`: keys, mouse look, toolbar, placing objects, clicking in-world buttons. `local-stack.ts`: where the local stack differs from a deployed one |
-| `probes/` | Read-only measurements inside a page: `session.ts` (media server session, peers, frame rate), `audio.ts` (pilot heard), `poses.ts`, `recording.ts` (the downloaded recording), `errors.ts` (console errors against the allow-list, reticulum.io requests, data channel sends before open). Step 4 adds video, connections, packets, memory |
+| `clients/` | Starting and driving a client. `launch.ts`: the profile table (DESK so far; QUEST, ANDROID, IOS and OLD come with later steps), one Edge process and profile directory per client, launch flags, video, console capture, and the poor-network modifier (headless Chromium in `netclient`). `bot.ts`: BOT clients on the client's own bot path (`?bot=true`), in headless Chromium. `iot.ts`: the IOT client, the libpeer device simulator page. `network.ts`: shaping the poor-network client's link (`tc netem`, offline). `cable.ts`: the player that feeds a clip into the virtual audio cable. `workarounds.ts`: logged workarounds for known product failures. `signin.ts`: signing in without e-mail. `enter.ts`: the real entry UI. `input.ts`: keys, mouse look, toolbar, popovers, Audio Settings, Share, People, Room Settings, Preferences, placing objects, clicking in-world buttons and paging PDFs. `local-stack.ts`: where the local stack differs from a deployed one |
+| `probes/` | Read-only measurements inside a page: `session.ts` (media server session, peers, remote tracks, frame rate), `audio.ts` (pilot heard, and a pilot watch that follows a sender across track changes and measures gaps), `video.ts` (remote video drawn to a canvas: frames and mean colour against the sender's own track or clip), `connections.ts` (an init script wraps `RTCPeerConnection`: live count, `getStats` with the selected candidate pair, data channels per label, RTP, bitrates), `packets.ts` (the data channel bus's recording: per label, direction and time), `memory.ts` (JS heap through the DevTools protocol after a collection, `renderer.info.memory`, live connections, trends), `poses.ts`, `recording.ts` (the downloaded recording), `errors.ts` (console errors against the allow-list, reticulum.io requests, data channel sends before open) |
 | `motions/` | Headset and controller pose timelines (M1 to M10, H1) and the scripts that convert recordings into timelines (later steps) |
-| `suites/` | The tests, one file per group (`t1-smoke` to `t7-devices`); `harness.ts` (the `test` with the evidence fixture), `global-setup.ts`, `console-allowlist.ts` |
+| `suites/` | The tests, one file per group (`t1-smoke`, `t2-audio`, `t2-video`, `t2-rooms`, `t2-resilience`, `t2-features`, `t2-soak`, later `t3` to `t7`); `harness.ts` (the `test` with the evidence fixture), `blocks.ts` (which tests run in the run's media server block), `common.ts` (entering clients, hearing grids, the closing checks), `global-setup.ts` and `global-teardown.ts`, `console-allowlist.ts` |
 | `report/` | `evidence.ts` (per-test evidence folders, `run.json`), `obs.ts` (OBS recordings), `reporter.ts` and `build-report.ts` (`evidence/<run-id>/report.html`) |
-| `assets/` | `media.ts` (pilot frequency and colour per client slot), `generate.ts` (clips and the scene), `SOURCES.md`. Served at `https://hubs.local:3001/<path>` by the `assets` service |
-| `setup/` | `create-fixtures.ts`: accounts, the scene and the rooms of plan 1.5, written to `fixtures.json` |
-| `lib/` | Paths and host names, `docker compose`, SQL and Elixir helpers, `fixtures.json` access |
+| `assets/` | `media.ts` (pilot frequency and colour per client slot), `generate.ts` (clips, the PDFs and the video file, the Crater scene and the N-impro scene), `SOURCES.md`. Served at `https://hubs.local:3001/<path>` by the `assets` service |
+| `setup/` | `create-fixtures.ts`: accounts, the scenes (Crater, and N-impro for the `nimpro` room) and the rooms of plan 1.5, written to `fixtures.json` |
+| `lib/` | Paths and host names, `docker compose`, SQL and Elixir helpers, `fixtures.json` access, `livekit.ts` (the media server block of a run and switching the server's LiveKit setting) |
 | `docker/` | Files for the extra services in `../docker-compose.e2e.yml`: the TLS proxy for LiveKit, the asset server and the poor-network client image |
 | `trials/` | Throwaway scripts of the step 2 trials, written up in `TRIALS.md` |
 
@@ -26,8 +26,8 @@ cd e2e
 npm install
 npx playwright install chromium webkit
 cp .env.local.example .env.local         # OBS WebSocket password, LAN address
-npx tsx assets/generate.ts               # clips per client slot, and the Crater scene file (needs ffmpeg)
-npx tsx setup/create-fixtures.ts         # accounts, signed-in profiles, the scene, the rooms -> fixtures.json
+npx tsx assets/generate.ts               # clips per client slot, media files, the Crater and N-impro scenes (needs ffmpeg)
+npx tsx setup/create-fixtures.ts         # accounts, signed-in profiles, the scenes, the rooms -> fixtures.json
 ```
 
 `create-fixtures.ts` can be run again at any time: it reuses the scene and rooms that still exist and signs in profiles whose token no longer works.
@@ -63,9 +63,17 @@ npx playwright test --list      # what would run
 npx playwright test             # everything, one test at a time
 npx playwright test suites/t1   # one group
 E2E_OBS=0 npx playwright test   # without OBS recordings
+MEDIA_BLOCK=livekit-local npx playwright test   # the LiveKit tests on the local LiveKit server
+MEDIA_BLOCK=livekit-cloud npx playwright test   # the LiveKit tests on LiveKit Cloud (LIVEKIT_CLOUD_* in .env.local)
+SOAK_MINUTES=5 npx playwright test suites/t2-soak   # T2.15 shortened (40 minutes by default)
+npx playwright test suites/t2-audio -g "T2.1" --repeat-each=3   # a flaky test three times, each in its own folder
 npm run typecheck
 npx tsx report/build-report.ts [run-id]   # rebuild a run's report (the newest when no id is given)
 ```
+
+### Media server blocks
+
+Which LiveKit server rooms set to LiveKit use is a server setting, not a room setting (plan 1.4), so a run picks one block with `MEDIA_BLOCK`: `dialog` (the default; the LiveKit setting is left as it is), `livekit-local` (`wss://hubs.local:7443`, `devkey`, `secret`) or `livekit-cloud` (the `LIVEKIT_CLOUD_URL`, `_KEY` and `_SECRET` of `.env.local`). The global setup switches the server setting to the block and restarts reticulum; the global teardown puts back what it found (`MEDIA_BLOCK_RESTORE=0` leaves it switched on, for several runs in one block). Each test is written for a media server: Dialog tests run in the Dialog block, LiveKit tests in whichever LiveKit block is active, and their ids carry the block (`t2.1-dialog`, `t2.1-livekit-local`, `t2.1-livekit-cloud`); the others are skipped with the reason. `run.json` records the block and the LiveKit setting before and during the run. By hand: `npx tsx lib/livekit.ts show | local | cloud | unset` (values are never printed).
 
 Before the tests, `suites/global-setup.ts` stops the run when `PRIVATE_NETWORK_IP` is no longer this PC's address or the stack does not answer, restarts reticulum when its clock has fallen behind (below), and writes `run.json`.
 
