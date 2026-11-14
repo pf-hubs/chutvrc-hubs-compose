@@ -17,3 +17,6 @@ assets/scenes/
 assets/avatars/*.vrm
 assets/avatars/*.glb
 assets/media/
+
+# Timelines the motion scripts write (motions/battery.ts, the converters); the suite builds them itself
+motions/*.json
