@@ -66,6 +66,7 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
     slot: opts.slot,
     pilotHz: MEDIA_SLOTS[opts.slot].pilotHz,
     baseUrl: BASE_URL,
+    roomUrl: (hubId: string, query = "") => `${BASE_URL}/${hubId}${query}`,
     context,
     page,
     log,

@@ -105,7 +105,17 @@ With both:
 | left controller `connected = false` | own `tracked` 5 |
 | frame rates while presenting | window rAF 60.2, XR session rAF 60.1 (renderer frames count twice) |
 
-Open point for T4.8: every `#avatar-pose` packet the headset sent had `tracked` 1 (head only), while its own pose read between frames had 7 (5 after the disconnect), so the observer's copy always had `tracked` 1. Either the sender samples the controllers before they are shown in the frame, or IWER's controllers become visible later in the frame than a real headset's; T4.8 has to tell which.
+Open point for T4.8: every `#avatar-pose` packet the headset sent had `tracked` 1 (head only), while its own pose read between frames had 7 (5 after the disconnect), so the observer's copy always had `tracked` 1. Either the sender samples the controllers before they are shown in the frame, or IWER's controllers become visible later in the frame than a real headset's; T4.8 has to tell which. Settled in step 6, below: an emulation artifact.
+
+### Step 6: the window's frame callbacks while in VR
+
+T4.8 (step 6) wrapped the own pose sampler and the pose sender and found the scene ticking twice per frame while presenting: once inside the XR frame (three.js's XR loop) and once about 1 ms later outside it (the renderer's window loop), 122 renderer frames a second at 60 Hz (`trials/step6-quest-ticks.ts`). The controllers were hidden at the first tick and shown at the second, so the own pose alternated `tracked` 1 and 7, and the sender, whose 22 ms gate opens on the first tick, sent 1 every time. After leaving VR (by `scene.exitVR()` or by ending the session from the device) the scene drew nothing more: 0 frames a second, no samples, no packets.
+
+Cause: on `enter-vr` the client's PDF fix replaces `window.requestAnimationFrame` and `window.cancelAnimationFrame` with the XR session's. A-Frame emits `enter-vr` right after calling three.js's `setSession`, which finishes asynchronously, so when three.js then stops the renderer's window loop (`sessionstart`), its cancel goes to the session and the pending window callback survives. In Edge that callback fires and re-requests through the patched function, so the window loop rides on the XR session beside the XR loop; when the session ends, three.js restarts its window loop through the still-patched function on the ended session and both loops are gone. The Quest Browser does not run window frame callbacks while an immersive session presents (the PDF fix's own premise), so there the leftover callback waits and resumes the window loop after the session ends.
+
+The QUEST profile therefore holds window frame callbacks while IWER's session is active (`clients/motion.ts`, `QUEST_WINDOW_FRAMES`; `E2E_QUEST_WINDOW_RAF=run` turns it off). With it: one tick per frame (60 renderer frames a second), the sent `tracked` equals the own pose's (7, 5 with the left controller off, 1 out of VR), and the scene keeps drawing after leaving VR (60 a second). The plain-IWER run is kept as T4.8's evidence `2026-11-14T15-31-02-934Z`.
+
+Still to look at on a real headset: with the leftover callback held, leaving VR through the client's own exit (`scene.exitVR()`, where `exit-vr` restores the functions before the session's `end`) can leave two window loops running (the held callback and the one three.js restarts), so the scene would tick twice per frame after the first exit.
 
 ## (c) IOS (WebKit)
 

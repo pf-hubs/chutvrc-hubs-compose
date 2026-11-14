@@ -51,6 +51,7 @@ export async function launchDeviceSimulator(evidence: Evidence, position: [numbe
     slot: "i",
     pilotHz: 0,
     baseUrl: BASE_URL,
+    roomUrl: (hubId: string, query = "") => `${BASE_URL}/${hubId}${query}`,
     context,
     page,
     log,

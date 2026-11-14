@@ -3,7 +3,16 @@ import type { Page } from "@playwright/test";
 import type { Client } from "./launch";
 import { IS_CONNECTED } from "../probes/compat";
 
-export type EntryTimings = { load: number; joinVisible: number; profile: number; mic: number; entered: number; mediaServer: number };
+export type EntryTimings = {
+  load: number;
+  joinVisible: number;
+  profile: number;
+  mic: number;
+  entered: number;
+  mediaServer: number;
+  /** QUEST: when the immersive session presented (the client requests it itself on Enter Room) */
+  presenting?: number;
+};
 
 export type EnterOptions = {
   displayName: string;
@@ -25,7 +34,7 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const t0 = Date.now();
   const since = () => Date.now() - t0;
 
-  await page.goto(`${client.baseUrl}/${hubId}${opts.query ?? ""}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+  await page.goto(client.roomUrl(hubId, opts.query), { waitUntil: "domcontentloaded", timeout: 120_000 });
   const load = since();
   if (opts.avatarUrl) {
     await page.waitForFunction(() => (window as any).APP?.store, undefined, { timeout });
@@ -61,8 +70,16 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const entered = since();
   await waitMediaServer(page, 60_000);
   const mediaServer = since();
-  await skipTour(page);
-  return { load, joinVisible, profile, mic, entered, mediaServer };
+  // With the Quest Browser's user agent the client forces VR entry: Enter Room requests the immersive
+  // session, which IWER provides (TRIALS.md, trial b)
+  let presenting: number | undefined;
+  if (client.profile === "QUEST" || client.profile === "OLD_QUEST") {
+    await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout: 60_000 });
+    presenting = since();
+  } else {
+    await skipTour(page);
+  }
+  return { load, joinVisible, profile, mic, entered, mediaServer, presenting };
 }
 
 export async function waitEntered(page: Page, timeout = 60_000) {

@@ -34,6 +34,12 @@ export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
       "a shared camera or screen is placed as hubs://clients/<id>/video; media-url-utils.js isHubsServer() prefixes a URL that does not start with http with https://, so the origin becomes https://hubs, and the CORS proxy refuses that host (401). Upstream code, the same on develop; the share itself works (T2.4)"
   },
   {
+    pattern: /(status of 404 .*|Manifest fetch from .* failed, code 404 .*)https:\/\/hubs\.local:8080\/(manifest\.webmanifest|hub\.html)/,
+    types: ["error"],
+    reason:
+      "the OLD profile opens the old build's own dev server page (https://hubs.local:8080/hub.html, mapped to hubs-client-old), which serves no manifest.webmanifest; reticulum's room page, which the other profiles open, has one. A difference of how the old build is reached here, not of the build"
+  },
+  {
     pattern: /^net::ERR_ABORTED (GET|HEAD) /,
     types: ["requestfailed"],
     reason:

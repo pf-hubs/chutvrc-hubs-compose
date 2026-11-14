@@ -11,8 +11,9 @@ import { CONNECTION_WATCH } from "../probes/connections";
 import { COMPAT_SHIM } from "../probes/compat";
 import { MEDIA_SLOTS, clipPath, type SlotName } from "../assets/media";
 import type { Evidence } from "../report/evidence";
+import { IWER_INIT, QUEST3_USER_AGENT } from "./motion";
 
-export type ProfileId = "DESK";
+export type ProfileId = "DESK" | "QUEST" | "OLD" | "OLD_QUEST";
 /** What a client imitates: a profile of the table, or a BOT (clients/bot.ts) */
 export type ClientKind = ProfileId | "BOT";
 export type Modifier = "slow" | "poor-network";
@@ -28,10 +29,23 @@ type ProfileSpec = {
   hasTouch?: boolean;
   deviceScaleFactor?: number;
   baseUrl: string;
+  /** The page that opens a room; `query` is a query string such as "?force_tcp" */
+  roomUrl: (hubId: string, query?: string) => string;
   extraArgs: string[];
   /** Scripts that run before any page script, after the common ones */
   initScripts: string[];
 };
+
+/** The room page as reticulum serves it: the current build */
+const ownRoomUrl = (hubId: string, query = "") => `${BASE_URL}/${hubId}${query}`;
+
+/**
+ * The OLD profile's client: hubs feature/sfu-refactor served by hubs-client-old on 8082. Its pages load
+ * their scripts from https://hubs.local:8080/ (its BASE_ASSETS_PATH), which on the host is the current
+ * client, so its browser maps hubs.local:8080 to 127.0.0.1:8082 and opens the dev server's own room page
+ * through that name, an origin reticulum already allows (TRIALS.md, trial e).
+ */
+export const OLD_BASE_URL = "https://hubs.local:8080";
 
 export const PROFILES: Record<ProfileId, ProfileSpec> = {
   DESK: {
@@ -40,10 +54,47 @@ export const PROFILES: Record<ProfileId, ProfileSpec> = {
     headless: false,
     viewport: { width: 1280, height: 720 },
     baseUrl: BASE_URL,
+    roomUrl: ownRoomUrl,
     extraArgs: [],
     initScripts: []
+  },
+  // Plan 2.1: DESK with IWER installed before the page's scripts and the Quest Browser's user agent, so
+  // AFRAME.utils.device.isMobileVR() is true and Enter Room starts the immersive session IWER provides.
+  // The headset and controllers are moved by clients/motion.ts (TRIALS.md, trial b).
+  QUEST: {
+    imitates: "Quest 3 headset in the Meta Quest Browser (IWER emulating the headset and controllers)",
+    channel: "msedge",
+    headless: false,
+    viewport: { width: 1280, height: 720 },
+    userAgent: QUEST3_USER_AGENT,
+    baseUrl: BASE_URL,
+    roomUrl: ownRoomUrl,
+    extraArgs: [],
+    initScripts: [IWER_INIT]
+  },
+  OLD: {
+    imitates: "a browser still on the previous build (hubs feature/sfu-refactor, served by hubs-client-old)",
+    channel: "msedge",
+    headless: false,
+    viewport: { width: 1280, height: 720 },
+    baseUrl: OLD_BASE_URL,
+    roomUrl: (hubId, query = "") => `${OLD_BASE_URL}/hub.html?hub_id=${hubId}${query ? `&${query.replace(/^\?/, "")}` : ""}`,
+    extraArgs: ["--host-resolver-rules=MAP hubs.local:8080 127.0.0.1:8082"],
+    initScripts: []
+  },
+  // A headset still on the previous build: the OLD profile's page with the QUEST profile's emulation (T4.1)
+  OLD_QUEST: {
+    imitates: "a Quest 3 headset still on the previous build (OLD with IWER and the Quest Browser's user agent)",
+    channel: "msedge",
+    headless: false,
+    viewport: { width: 1280, height: 720 },
+    userAgent: QUEST3_USER_AGENT,
+    baseUrl: OLD_BASE_URL,
+    roomUrl: (hubId, query = "") => `${OLD_BASE_URL}/hub.html?hub_id=${hubId}${query ? `&${query.replace(/^\?/, "")}` : ""}`,
+    extraArgs: ["--host-resolver-rules=MAP hubs.local:8080 127.0.0.1:8082"],
+    initScripts: [IWER_INIT]
   }
-  // QUEST, ANDROID, IOS, OLD, BOT: later steps (plan 2.1; step 2 settled how each is built, see TRIALS.md)
+  // ANDROID, IOS: a later step (plan 2.1; step 2 settled how each is built, see TRIALS.md)
 };
 
 /** Plan 2.2: the same for every Chromium-based client */
@@ -121,6 +172,8 @@ export type Client = {
   slot: SlotName;
   pilotHz: number;
   baseUrl: string;
+  /** The page that opens a room in this client's build */
+  roomUrl: (hubId: string, query?: string) => string;
   context: BrowserContext;
   page: Page;
   /** Console messages, page errors and failed requests, in order */
@@ -179,6 +232,7 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
     slot: opts.slot,
     pilotHz: MEDIA_SLOTS[opts.slot].pilotHz,
     baseUrl: spec.baseUrl,
+    roomUrl: spec.roomUrl,
     context,
     page,
     log,
@@ -296,6 +350,7 @@ async function launchNetClient(opts: LaunchOptions, spec: ProfileSpec): Promise<
     slot: opts.slot,
     pilotHz: MEDIA_SLOTS[opts.slot].pilotHz,
     baseUrl: spec.baseUrl,
+    roomUrl: spec.roomUrl,
     context,
     page,
     log,
