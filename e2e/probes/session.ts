@@ -83,3 +83,12 @@ export function measureFrameRate(page: Page, ms = 3000): Promise<{ raf: number; 
 }
 
 export const MIN_FRAME_RATE = 55;
+
+/** The audio and video tracks `page` keeps for another client (the remote stream of its media session) */
+export function remoteTracks(page: Page, clientId: string): Promise<{ audio: string[]; video: string[] }> {
+  return page.evaluate(clientId => {
+    const stream: MediaStream | undefined = (window as any).APP?.sfu?.media?.remoteStream(clientId);
+    const describe = (t: MediaStreamTrack) => `${t.id.slice(0, 8)} ${t.readyState}${t.muted ? " muted" : ""}`;
+    return { audio: stream?.getAudioTracks().map(describe) ?? [], video: stream?.getVideoTracks().map(describe) ?? [] };
+  }, clientId);
+}

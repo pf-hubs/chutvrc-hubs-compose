@@ -78,3 +78,118 @@ export function heardPilot(page: Page, senderId: string, pilotHz: number, contro
     { senderId, pilotHz, controlHz, ms }
   );
 }
+
+/**
+ * A pilot watch: from start to stop, the page samples `senderId`'s pilot every 40 ms and notes when it
+ * stood out, and it looks for the sender's audio track every 500 ms, so it follows the sender onto a new
+ * track (a media server switch, a reconnect, a device change). Gaps in the detections show how long the
+ * audio was gone. Several watches can run at once under different keys.
+ */
+export async function startPilotWatch(page: Page, key: string, senderId: string, pilotHz: number) {
+  await page.evaluate(
+    ({ key, senderId, pilotHz }) => {
+      const w = window as any;
+      w.__e2ePilotWatch ??= {};
+      const state = { t0: performance.now(), detections: [] as number[], trackChanges: [] as { t: number; id: string | null }[], tracks: [] as string[], stop: false, done: null as Promise<void> | null };
+      w.__e2ePilotWatch[key] = state;
+      state.done = (async () => {
+        const ctx = new AudioContext();
+        await ctx.resume();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 4096;
+        analyser.smoothingTimeConstant = 0;
+        const bins = new Float32Array(analyser.frequencyBinCount);
+        const k = Math.round(pilotHz / (ctx.sampleRate / analyser.fftSize));
+        let current: MediaStreamTrack | null = null;
+        let source: MediaStreamAudioSourceNode | null = null;
+        let element: HTMLAudioElement | null = null;
+        let lastLook = -Infinity;
+        while (!state.stop) {
+          const now = performance.now();
+          if (now - lastLook > 500) {
+            lastLook = now;
+            const stream: MediaStream | null = await Promise.race([
+              (window as any).APP.sfu.getMediaStream(senderId, "audio").catch(() => null),
+              new Promise<null>(r => setTimeout(() => r(null), 300))
+            ]);
+            const track = stream?.getAudioTracks().find(t => t.readyState === "live") ?? null;
+            if ((track?.id ?? null) !== (current?.id ?? null) && (track || current?.readyState === "ended")) {
+              source?.disconnect();
+              if (element) element.srcObject = null;
+              current = track;
+              source = null;
+              if (track) {
+                // Chromium only feeds a remote WebRTC track into Web Audio once a media element plays it
+                element = new Audio();
+                element.muted = true;
+                element.srcObject = new MediaStream([track]);
+                await element.play().catch(() => {});
+                source = ctx.createMediaStreamSource(new MediaStream([track]));
+                source.connect(analyser);
+                state.tracks.push(track.id);
+              }
+              state.trackChanges.push({ t: Math.round(performance.now() - state.t0), id: track?.id ?? null });
+            }
+          }
+          if (source) {
+            analyser.getFloatFrequencyData(bins);
+            const peak = Math.max(bins[k - 1], bins[k], bins[k + 1]);
+            const around: number[] = [];
+            for (let j = k - 30; j <= k + 30; j++) if (Math.abs(j - k) > 4 && j > 0 && j < bins.length) around.push(bins[j]);
+            around.sort((a, b) => a - b);
+            if (peak - around[around.length >> 1] > 20) state.detections.push(Math.round(performance.now() - state.t0));
+          }
+          await new Promise(r => setTimeout(r, 40));
+        }
+        source?.disconnect();
+        if (element) element.srcObject = null;
+        await ctx.close();
+      })();
+    },
+    { key, senderId, pilotHz }
+  );
+}
+
+export type PilotWatch = {
+  /** Wall-clock time (Date.now()) the watch started, for lining it up with the test's own events */
+  startedAt: number;
+  durationMs: number;
+  /** Milliseconds from the start at which the pilot stood out */
+  detections: number[];
+  /** When the sender's audio track changed (null: no live track) */
+  trackChanges: { t: number; id: string | null }[];
+  /** Distinct tracks the watch played */
+  tracks: string[];
+};
+
+export async function stopPilotWatch(page: Page, key: string): Promise<PilotWatch> {
+  return page.evaluate(async key => {
+    const state = (window as any).__e2ePilotWatch?.[key];
+    if (!state) return { startedAt: 0, durationMs: 0, detections: [], trackChanges: [], tracks: [] };
+    state.stop = true;
+    await state.done;
+    delete (window as any).__e2ePilotWatch[key];
+    const durationMs = Math.round(performance.now() - state.t0);
+    return { startedAt: Math.round(performance.timeOrigin + state.t0), durationMs, detections: state.detections, trackChanges: state.trackChanges, tracks: state.tracks };
+  }, key);
+}
+
+/** The beeps come once a second, so detections normally follow each other within this */
+const BEEP_PERIOD_MS = 1000;
+
+/**
+ * The longest stretch without the pilot within [fromMs, toMs] of a watch (from the start when not given),
+ * minus the normal pause between beeps: about 0 while the audio runs, the outage otherwise. The edges of
+ * the window count as detections only when the pilot was heard before them.
+ */
+export function audioGap(watch: PilotWatch, fromMs = 0, toMs = watch.durationMs): { gapMs: number; heardAfterMs: number | null; detections: number } {
+  const inside = watch.detections.filter(t => t >= fromMs && t <= toMs);
+  const points = [fromMs, ...inside, toMs];
+  let longest = 0;
+  for (let i = 1; i < points.length; i++) longest = Math.max(longest, points[i] - points[i - 1]);
+  return {
+    gapMs: Math.max(0, longest - BEEP_PERIOD_MS),
+    heardAfterMs: inside.length ? inside[0] - fromMs : null,
+    detections: inside.length
+  };
+}
