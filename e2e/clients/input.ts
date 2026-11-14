@@ -49,11 +49,11 @@ export async function look(page: Page, dx: number, dy: number, steps = 20) {
   await page.mouse.up();
 }
 
-export type FaceTarget = { clientId: string } | { mediaSrc: string };
+export type FaceTarget = { clientId: string } | { mediaSrc: string } | { selector: string };
 
 /**
  * Turns the avatar with Q and E until a target is roughly ahead (within half a snap turn): another
- * client's avatar, where this client shows it, or a placed object. Returns the angle left, in degrees
+ * client's avatar, where this client shows it, a placed object, or any element of the scene (a CSS selector). Returns the angle left, in degrees
  * (positive: the target is to the left), or null when this client has no such target.
  */
 export async function faceTowards(page: Page, target: FaceTarget, snapDegrees = 45): Promise<number | null> {
@@ -64,6 +64,9 @@ export async function faceTowards(page: Page, target: FaceTarget, snapDegrees = 
         let point: { x: number; z: number } | null = null;
         if ("clientId" in target) {
           point = (window as any).APP.avatarPoses.get(target.clientId)?.rig.pos ?? null;
+        } else if ("selector" in target) {
+          const el = document.querySelector(target.selector) as any;
+          point = el ? new THREE.Vector3().setFromMatrixPosition(el.object3D.matrixWorld) : null;
         } else {
           const el = new Function("arg", findMedia)({ src: target.mediaSrc });
           point = el ? new THREE.Vector3().setFromMatrixPosition(el.object3D.matrixWorld) : null;
@@ -235,4 +238,290 @@ export async function clickHoverMenuButton(page: Page, src: string, label: strin
   await page.mouse.down();
   await page.waitForTimeout(80);
   await page.mouse.up();
+}
+
+// ---------- UI that remounts, clicked at its position (see clickPopoverItem) ----------
+
+type Rect = { x: number; y: number };
+
+/**
+ * Presses and releases the mouse on the element `finder` (page code returning an element or null)
+ * finds, at its centre. For UI that is mounted afresh many times a second, where locator.click() never
+ * sees a stable element.
+ */
+export async function clickFound(page: Page, finder: string, arg?: unknown, what = "element", timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  let box: Rect | null = null;
+  while (!box && Date.now() < deadline) {
+    box = await page.evaluate(
+      ({ finder, arg }) => {
+        const el = new Function("arg", finder)(arg) as Element | null;
+        // An entry of a scrolled list (the microphone list) may lie below its visible part
+        el?.scrollIntoView({ block: "nearest" });
+        const r = el?.getBoundingClientRect();
+        return r && r.width > 0 && r.height > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+      },
+      { finder, arg }
+    );
+    if (!box) await page.waitForTimeout(100);
+  }
+  if (!box) throw new Error(`no ${what} to click`);
+  await page.mouse.click(box.x, box.y, { delay: 80 });
+}
+
+/** Opens a toolbar popover (Share, Place, More, Chutvrc, ...) unless it is open, and clicks one of its items */
+export async function choosePopoverItem(page: Page, toolbarLabel: string, itemLabel: string) {
+  // A popover may still be open from the last choice; its toolbar button would close it again
+  const open = await page.evaluate(
+    label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0 && !b.closest("[class*=toolbar]")),
+    itemLabel
+  );
+  if (!open) {
+    await toolbarButton(page, toolbarLabel).click();
+    await page.waitForTimeout(300);
+  }
+  await clickPopoverItem(page, itemLabel);
+}
+
+// ---------- Audio settings (the arrow next to Voice) ----------
+
+/** The Audio Settings button: the arrow left of Voice, in the same container */
+const AUDIO_SETTINGS_BUTTON = `
+  const voice = [...document.querySelectorAll("button")].find(b => b.textContent?.trim() === "Voice");
+  let box = voice?.parentElement;
+  while (box && box.querySelectorAll("button").length < 2) box = box.parentElement;
+  return box ? [...box.querySelectorAll("button")].find(b => b !== voice) : null;`;
+
+const AUDIO_POPOVER = `return document.querySelector('[class*="audio-toolbar-popover"]');`;
+const MIC_SELECT = `const p = document.querySelector('[class*="audio-toolbar-popover"]'); return p && (p.querySelector('[class*="dropdown-button"]') || p.querySelector('[aria-haspopup="listbox"]'));`;
+
+async function audioPopoverOpen(page: Page): Promise<boolean> {
+  return page.evaluate(f => !!new Function(f)(), AUDIO_POPOVER);
+}
+
+export async function openAudioSettings(page: Page) {
+  if (!(await audioPopoverOpen(page))) await clickFound(page, AUDIO_SETTINGS_BUTTON, undefined, "Audio Settings button");
+  await page.waitForFunction(f => !!new Function(f)(), AUDIO_POPOVER, { timeout: 10_000 });
+}
+
+export async function closeAudioSettings(page: Page) {
+  if (await audioPopoverOpen(page)) await clickFound(page, AUDIO_SETTINGS_BUTTON, undefined, "Audio Settings button");
+  await page.waitForTimeout(300);
+}
+
+/** The microphone shown as selected in Audio Settings, and every one it offers */
+export async function microphoneChoices(page: Page): Promise<{ selected: string | null; options: string[] }> {
+  await openAudioSettings(page);
+  const selected = await page.evaluate(f => (new Function(f)() as HTMLElement | null)?.textContent?.trim() ?? null, MIC_SELECT);
+  await clickFound(page, MIC_SELECT, undefined, "microphone selector");
+  await page.waitForTimeout(400);
+  const options = await page.evaluate(() => [...document.querySelectorAll('[role="option"]')].map(o => o.textContent?.trim() ?? ""));
+  // Close the list again without choosing
+  await clickFound(page, MIC_SELECT, undefined, "microphone selector");
+  await closeAudioSettings(page);
+  return { selected, options };
+}
+
+/**
+ * Chooses a microphone in Audio Settings, as a person does: open the popover, open the microphone list,
+ * click the entry labelled `label` (or else the first containing it). Returns the label shown afterwards.
+ */
+export async function chooseMicrophone(page: Page, label: string): Promise<string | null> {
+  await openAudioSettings(page);
+  await clickFound(page, MIC_SELECT, undefined, "microphone selector");
+  await clickFound(
+    page,
+    `const all = [...document.querySelectorAll('[role="option"]')]; return all.find(o => o.textContent.trim() === arg) || all.find(o => o.textContent.includes(arg)) || null;`,
+    label,
+    `microphone "${label}" in the list`
+  );
+  await page.waitForTimeout(1500);
+  await openAudioSettings(page);
+  const shown = await page.evaluate(f => (new Function(f)() as HTMLElement | null)?.textContent?.trim() ?? null, MIC_SELECT);
+  await closeAudioSettings(page);
+  return shown;
+}
+
+// ---------- Share, Place ----------
+
+/** Share > Camera: starts sharing the camera */
+export const toggleShareCamera = (page: Page) => choosePopoverItem(page, "Share", "Camera");
+/** Share > Screen: starts sharing the screen */
+export const toggleShareScreen = (page: Page) => choosePopoverItem(page, "Share", "Screen");
+/**
+ * While something is shared the toolbar's Share button has no popover: it stops the share (SharePopover.js
+ * shows only the active item's button). Switching from the camera to the screen is this, then Share > Screen.
+ */
+export const stopSharing = (page: Page) => toolbarButton(page, "Share").click();
+/** Place > Camera: the camera tool appears in front of the avatar (a second press removes it) */
+export const toggleCameraTool = (page: Page) => choosePopoverItem(page, "Place", "Camera");
+
+// ---------- More menu: preferences, room settings ----------
+
+/** The check box of a preference row, found by the row's label */
+const PREFERENCE_BOX = `
+  const label = [...document.querySelectorAll('[class*="preference-label"]')].find(e => e.textContent.trim() === arg);
+  return label ? label.parentElement.querySelector('input[type="checkbox"]') : null;`;
+
+/**
+ * More > Preferences, the category `tab` (its button is labelled "Select category <tab>"), and a check box
+ * preference by its label; closes the screen again and returns the box's state.
+ */
+export async function setPreference(page: Page, tab: string, label: string, on: boolean): Promise<boolean> {
+  await choosePopoverItem(page, "More", "Preferences");
+  await clickFound(page, `return document.querySelector('button[aria-label="Select category ${tab}"]')`, undefined, `the ${tab} category`);
+  await page.waitForTimeout(500);
+  const checked = () => page.evaluate(({ f, label }) => (new Function("arg", f)(label) as HTMLInputElement | null)?.checked ?? null, { f: PREFERENCE_BOX, label });
+  if ((await checked()) === null) throw new Error(`no preference "${label}" in ${tab}`);
+  if ((await checked()) !== on) await clickFound(page, PREFERENCE_BOX, label, `the "${label}" box`);
+  await page.waitForTimeout(300);
+  const now = (await checked()) === true;
+  await clickFound(page, `return document.querySelector('button[aria-label="Close Preferences Menu"]')`, undefined, "the preferences close button");
+  await page.waitForTimeout(500);
+  return now;
+}
+
+/**
+ * More > Room Info and Settings > Edit, "WebRTC SFU" set to `server` ("Dialog", "LiveKit"), Apply.
+ * Only an admin sees the WebRTC SFU field.
+ */
+export async function setRoomMediaServer(page: Page, server: "Dialog" | "LiveKit") {
+  await choosePopoverItem(page, "More", "Room Info and Settings");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  // The radio's accessible name runs on into its description ("LiveKit LiveKit Cloud WebRTC SFU"), so it is found by its value
+  await page.locator('input[type="radio"][name="sfu"][value="' + (server === "Dialog" ? 0 : 2) + '"]').check({ force: true });
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await page.waitForTimeout(500);
+}
+
+// ---------- People ----------
+
+/** Opens People and the profile of the person shown as `displayName`; from another profile it goes Back first */
+export async function openPerson(page: Page, displayName: string) {
+  const back = page.getByRole("button", { name: "Back", exact: true });
+  if (await back.isVisible().catch(() => false)) {
+    await back.click();
+    await page.waitForTimeout(300);
+  }
+  // In the sidebar: the same name can also be in a chat notification ("... entered the room")
+  const list = page.locator('[class*="sidebar" i]').getByText(displayName, { exact: true }).first();
+  if (!(await list.isVisible().catch(() => false))) await page.getByRole("button", { name: /^People/ }).click();
+  await list.click();
+}
+
+/** A button of the open profile sidebar ("Hide", "Unhide", "Kick", "Mute") */
+export async function clickProfileButton(page: Page, label: string) {
+  await page.getByRole("button", { name: label, exact: true }).click();
+}
+
+/** Closes the People sidebar (from a profile: Back, then the People toggle) */
+export async function closeSidebar(page: Page) {
+  const back = page.getByRole("button", { name: "Back", exact: true });
+  if (await back.isVisible().catch(() => false)) await back.click();
+  await page.waitForTimeout(200);
+  const people = page.getByRole("button", { name: /^People/ });
+  const open = await page.evaluate(() => !!document.querySelector('[class*="sidebar"]'));
+  if (open && (await people.isVisible().catch(() => false))) await people.click();
+  await page.waitForTimeout(300);
+}
+
+// ---------- Leaving ----------
+
+/** Leave, then confirm in the dialog (its confirmation is a link to the home page, so the page navigates away) */
+export async function leaveRoom(page: Page) {
+  await toolbarButton(page, "Leave").click();
+  // The dialog re-renders while the room is busy, so its link is pressed at its position
+  await clickFound(
+    page,
+    'const all = [...document.querySelectorAll("a, button")].filter(b => b.textContent?.trim() === "Leave Room"); return all[all.length - 1] || null;',
+    undefined,
+    "Leave Room button of the dialog"
+  );
+}
+
+// ---------- In-world objects ----------
+
+/** Clicks an in-world object found by page code (returning an A-Frame element or a three.js object) */
+export async function clickInWorld(page: Page, finder: string, arg?: unknown, what = "object") {
+  const point = await screenPointOf(page, finder, arg);
+  if (!point?.onScreen) throw new Error(`${what} is not on screen`);
+  await page.mouse.move(point.x, point.y, { steps: 5 });
+  await page.waitForTimeout(150);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  await page.mouse.up();
+}
+
+/**
+ * Pages a placed PDF with its hover menu: moves the mouse onto it so the pager shows, then clicks the
+ * next (or previous) button
+ */
+export async function pagePdf(page: Page, src: string, direction: "next" | "prev", timeout = 15_000) {
+  const media = await screenPointOf(page, FIND_MEDIA, { src });
+  if (!media?.onScreen) throw new Error(`the PDF ${src} is not on screen`);
+  await page.mouse.move(media.x, media.y, { steps: 5 });
+  const button = `
+    const media = (() => {${FIND_MEDIA}})();
+    const shown = el => { for (let o = el.object3D; o; o = o.parent) if (!o.visible) return false; return true; };
+    const b = media && media.querySelector(".${direction}-button [text-button]");
+    return b && shown(b) ? b : null;`;
+  const deadline = Date.now() + timeout;
+  let point: ScreenPoint | null = null;
+  while (Date.now() < deadline) {
+    point = await screenPointOf(page, button, { src });
+    if (point?.onScreen) break;
+    await page.mouse.move(media.x + (Date.now() % 2 ? 1 : -1), media.y);
+    await page.waitForTimeout(250);
+  }
+  if (!point?.onScreen) throw new Error(`no ${direction} button showed on the PDF`);
+  await page.mouse.move(point.x, point.y, { steps: 5 });
+  await page.waitForTimeout(200);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  await page.mouse.up();
+}
+
+/** The page index a client shows for the placed PDF with this URL, or null */
+export function pdfPageOf(page: Page, src: string): Promise<number | null> {
+  return page.evaluate(
+    ({ finder, src }) => {
+      const el = new Function("arg", finder)({ src });
+      const pager = el?.components?.["media-pager"];
+      return pager ? pager.data.index : null;
+    },
+    { finder: FIND_MEDIA, src }
+  );
+}
+
+/** Page code (arg: { src }) finding the placed object with that URL; for tests that read it */
+export const FIND_MEDIA_CODE = FIND_MEDIA;
+
+/**
+ * An action of the Chutvrc popover: its menu ("Nimpro" or "Broadcast") shows the actions ("Init Nimpro",
+ * "New Round", "Result", "Start Speaking", ...). The popover remembers the open menu, and clicking the
+ * menu's button again closes it, so this opens only what is not open yet. With `done`, a click that had no
+ * effect (the popover's buttons are mounted afresh while it opens) is repeated, up to three times.
+ */
+export async function chutvrcAction(page: Page, menu: "Nimpro" | "Broadcast", action: string, done?: () => Promise<boolean>) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await chutvrcClick(page, menu, action);
+    if (!done) return;
+    await page.waitForTimeout(1000);
+    if (await done()) return;
+  }
+  throw new Error(`Chutvrc > ${menu} > ${action} had no effect after three clicks`);
+}
+
+async function chutvrcClick(page: Page, menu: "Nimpro" | "Broadcast", action: string) {
+  const visible = (label: string) =>
+    page.evaluate(label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0), label);
+  if (!(await visible(action)) && !(await visible(menu))) {
+    await toolbarButton(page, "Chutvrc").click();
+    await page.waitForTimeout(300);
+  }
+  if (!(await visible(action))) {
+    await clickPopoverItem(page, menu);
+    await page.waitForTimeout(300);
+  }
+  await clickPopoverItem(page, action);
 }

@@ -3,12 +3,17 @@
 // IOS, OLD and BOT, and the slow-device and poor-network modifiers, can be added by later steps.
 import fs from "node:fs";
 import path from "node:path";
-import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL, PROFILES_DIR } from "../lib/env";
+import { composeE2e } from "../lib/stack";
+import { CONNECTION_WATCH } from "../probes/connections";
 import { MEDIA_SLOTS, clipPath, type SlotName } from "../assets/media";
 import type { Evidence } from "../report/evidence";
 
 export type ProfileId = "DESK";
+/** What a client imitates: a profile of the table, or a BOT (clients/bot.ts) */
+export type ClientKind = ProfileId | "BOT";
 export type Modifier = "slow" | "poor-network";
 
 type ProfileSpec = {
@@ -86,6 +91,13 @@ export type LaunchOptions = {
   headless?: boolean;
   /** Probe scripts to run before the page's own scripts (see probes/) */
   initScripts?: string[];
+  /** The connections probe's wrapper around RTCPeerConnection (probes/connections.ts); on unless false */
+  watchConnections?: boolean;
+  /**
+   * "poor-network": headless Chromium inside the netclient container (plan 2.1), reached over
+   * ws://127.0.0.1:3100; its link is shaped with clients/network.ts. Renders in software: never used
+   * for rate assertions. Not signed in (the container's browser has no profile directory).
+   */
   modifiers?: Modifier[];
 };
 
@@ -100,7 +112,9 @@ export type LogEntry = {
 export type Client = {
   name: string;
   identity: string;
-  profile: ProfileId;
+  profile: ClientKind;
+  /** The modifiers it was started with */
+  modifiers: Modifier[];
   slot: SlotName;
   pilotHz: number;
   baseUrl: string;
@@ -116,7 +130,9 @@ export type Client = {
 export async function launchClient(opts: LaunchOptions): Promise<Client> {
   const spec = PROFILES[opts.profile];
   if (!spec) throw new Error(`profile ${opts.profile} is not implemented yet`);
-  if (opts.modifiers?.length) throw new Error(`modifiers (${opts.modifiers.join(", ")}) come with a later step`);
+  const unsupported = (opts.modifiers ?? []).filter(m => m !== "poor-network");
+  if (unsupported.length) throw new Error(`modifiers (${unsupported.join(", ")}) come with a later step`);
+  if (opts.modifiers?.includes("poor-network")) return launchNetClient(opts, spec);
 
   const name = opts.name ?? `${opts.slot.toUpperCase()}-${opts.identity}`;
   const profileDir = path.join(PROFILES_DIR, `${opts.profile.toLowerCase()}-${opts.identity}`);
@@ -145,14 +161,71 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
     ignoreHTTPSErrors: true,
     permissions: ["microphone", "camera"],
     acceptDownloads: true,
-    recordVideo: videoDir ? { dir: videoDir, size: spec.viewport } : undefined
+    // Half the window size: a long test with several clients otherwise writes gigabytes of video
+    recordVideo: videoDir ? { dir: videoDir, size: { width: spec.viewport.width / 2, height: spec.viewport.height / 2 } } : undefined
   });
-  await context.addInitScript({ content: COMMON_INIT });
-  for (const script of [...spec.initScripts, ...(opts.initScripts ?? [])]) await context.addInitScript({ content: script });
+  const page = await prepare(context, spec, opts);
+  const { log, hosts } = watch(context, page);
 
+  let closed = false;
+  const client: Client = {
+    name,
+    identity: opts.identity,
+    profile: opts.profile,
+    modifiers: opts.modifiers ?? [],
+    slot: opts.slot,
+    pilotHz: MEDIA_SLOTS[opts.slot].pilotHz,
+    baseUrl: spec.baseUrl,
+    context,
+    page,
+    log,
+    hosts,
+    async close() {
+      if (closed) return;
+      closed = true;
+      // A persistent context takes its browser down when it closes, so video.saveAs() is no longer
+      // possible afterwards; the finished file is moved from where Playwright wrote it instead
+      const videoFile = await page.video()?.path().catch(() => undefined);
+      await settle(context.close());
+      if (opts.evidence) {
+        opts.evidence.saveText(`${name}.console.log`, formatLog(log), "console log");
+        if (videoFile && fs.existsSync(videoFile)) {
+          // A browser that did not finish closing may still hold the file: then a copy, or a note
+          try {
+            fs.renameSync(videoFile, opts.evidence.file(`${name}.webm`));
+          } catch {
+            try {
+              fs.copyFileSync(videoFile, opts.evidence.file(`${name}.webm`));
+            } catch (e) {
+              opts.evidence.note(`${name}: video not saved (${(e as Error).message.split("\n")[0]})`);
+            }
+          }
+          if (fs.existsSync(opts.evidence.file(`${name}.webm`))) opts.evidence.addFile(`${name}.webm`, "video", `${name}: what the client showed (no sound)`);
+        }
+        try {
+          if (videoDir) fs.rmSync(videoDir, { recursive: true, force: true, maxRetries: 3 });
+        } catch {
+          // Still held by a browser that did not finish closing; the empty folder is harmless
+        }
+      }
+    }
+  };
+  opts.evidence?.register(client);
+  return client;
+}
+
+/** The common init scripts, the profile's and the caller's, in that order; returns the page */
+async function prepare(context: BrowserContext, spec: ProfileSpec, opts: LaunchOptions): Promise<Page> {
+  await context.addInitScript({ content: COMMON_INIT });
+  const scripts = [...(opts.watchConnections === false ? [] : [CONNECTION_WATCH]), ...spec.initScripts, ...(opts.initScripts ?? [])];
+  for (const script of scripts) await context.addInitScript({ content: script });
   const page = context.pages()[0] ?? (await context.newPage());
   await page.evaluate(COMMON_INIT).catch(() => {});
+  return page;
+}
 
+/** Collects the page's console, page errors and failed requests, and the hosts of every request */
+export function watch(context: BrowserContext, page: Page): { log: LogEntry[]; hosts: Set<string> } {
   const t0 = Date.now();
   const log: LogEntry[] = [];
   const hosts = new Set<string>();
@@ -168,12 +241,55 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
       // data: and blob: URLs have no host worth recording
     }
   });
+  return { log, hosts };
+}
 
+const NETCLIENT_URL = "ws://127.0.0.1:3100";
+
+/**
+ * The poor-network modifier (plan 2.1): the profile's settings in headless Chromium inside the netclient
+ * container. Its clips are copied into the container, since the browser reads them there. No video is
+ * recorded (the browser is remote); screenshots work as for the others.
+ */
+async function launchNetClient(opts: LaunchOptions, spec: ProfileSpec): Promise<Client> {
+  const name = opts.name ?? `${opts.slot.toUpperCase()}-${opts.identity}`;
+  const container = composeE2e(["ps", "-q", "netclient"]).trim();
+  if (!container) throw new Error("the netclient service is not running: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d netclient");
+  const mic = opts.mic ?? opts.slot;
+  const cam = opts.cam ?? opts.slot;
+  const args = [...COMMON_ARGS];
+  if (mic !== false || cam !== false) args.push("--use-fake-device-for-media-stream");
+  for (const [slot, kind] of [
+    [mic, "wav"],
+    [cam, "y4m"]
+  ] as const) {
+    if (slot === false) continue;
+    execFileSync("docker", ["cp", requireFile(clipPath(slot, kind)), `${container}:/tmp/${slot}.${kind}`]);
+    args.push(`--use-file-for-fake-${kind === "wav" ? "audio" : "video"}-capture=/tmp/${slot}.${kind}`);
+  }
+  const browser: Browser = await chromium.connect(NETCLIENT_URL, {
+    headers: { "x-playwright-launch-options": JSON.stringify({ args }) },
+    timeout: 60_000
+  });
+  const context = await browser.newContext({
+    viewport: spec.viewport,
+    userAgent: spec.userAgent,
+    isMobile: spec.isMobile,
+    hasTouch: spec.hasTouch,
+    deviceScaleFactor: spec.deviceScaleFactor,
+    locale: "en-US",
+    ignoreHTTPSErrors: true,
+    permissions: ["microphone", "camera"],
+    acceptDownloads: true
+  });
+  const page = await prepare(context, spec, opts);
+  const { log, hosts } = watch(context, page);
   let closed = false;
   const client: Client = {
     name,
     identity: opts.identity,
     profile: opts.profile,
+    modifiers: opts.modifiers ?? [],
     slot: opts.slot,
     pilotHz: MEDIA_SLOTS[opts.slot].pilotHz,
     baseUrl: spec.baseUrl,
@@ -184,17 +300,10 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
     async close() {
       if (closed) return;
       closed = true;
-      // A persistent context takes its browser down when it closes, so video.saveAs() is no longer
-      // possible afterwards; the finished file is moved from where Playwright wrote it instead
-      const videoFile = await page.video()?.path().catch(() => undefined);
-      await context.close().catch(() => {});
+      await settle(browser.close());
       if (opts.evidence) {
         opts.evidence.saveText(`${name}.console.log`, formatLog(log), "console log");
-        if (videoFile && fs.existsSync(videoFile)) {
-          fs.renameSync(videoFile, opts.evidence.file(`${name}.webm`));
-          opts.evidence.addFile(`${name}.webm`, "video", `${name}: what the client showed (no sound)`);
-        }
-        if (videoDir) fs.rmSync(videoDir, { recursive: true, force: true });
+        opts.evidence.note(`${name} ran in the netclient container (poor-network modifier): software rendering, no video recorded`);
       }
     }
   };
@@ -205,6 +314,14 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
 /** Starts several clients at once; plan 2.2 lets them load together */
 export function launchClients(list: LaunchOptions[]): Promise<Client[]> {
   return Promise.all(list.map(launchClient));
+}
+
+/**
+ * Waits for a closing browser or context, but not for ever: a page stuck in a reconnect loop can keep
+ * close() from returning, and the evidence of the remaining clients still has to be saved.
+ */
+export function settle(closing: Promise<unknown>, ms = 30_000): Promise<void> {
+  return Promise.race([closing.then(() => {}, () => {}), new Promise<void>(r => setTimeout(r, ms))]);
 }
 
 export function formatLog(log: LogEntry[]): string {
