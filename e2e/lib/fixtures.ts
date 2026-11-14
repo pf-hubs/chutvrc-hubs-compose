@@ -31,9 +31,14 @@ export type Room = {
   todo?: string;
 };
 
+export type SceneFixture = { sceneId: string; name: string; modelUrl: string; source: string };
+
 export type Fixtures = {
   host: string;
-  scene?: { sceneId: string; name: string; modelUrl: string; source: string };
+  /** The Crater scene most rooms use */
+  scene?: SceneFixture;
+  /** Every published scene: crater, and nimpro (the N-impro set) */
+  scenes?: Record<string, SceneFixture>;
   accounts: Record<AccountName, Account>;
   rooms: Record<RoomName, Room>;
   /** Rooms of the step 2 trials, kept for the trial scripts */

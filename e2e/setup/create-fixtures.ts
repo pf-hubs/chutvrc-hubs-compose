@@ -17,9 +17,11 @@ import { sql, sqlText } from "../lib/stack";
 import { SFU_ID, writeFixtures, type AccountName, type Fixtures, type MediaServer, type RoomName } from "../lib/fixtures";
 import { launchClient } from "../clients/launch";
 import { ensureSignedIn, mintTokens, type SignedAccount } from "../clients/signin";
-import { SCENE_FILE, SCENE_THUMBNAIL } from "../assets/generate";
+import { NIMPRO_SCENE_FILE, NIMPRO_SCENE_THUMBNAIL, QUESTION_PDF, SCENE_FILE, SCENE_THUMBNAIL } from "../assets/generate";
 
-const ROOMS: Record<RoomName, { owner: AccountName; mediaServer: MediaServer; todo?: string }> = {
+type SceneKey = "crater" | "nimpro";
+
+const ROOMS: Record<RoomName, { owner: AccountName; mediaServer: MediaServer; scene?: SceneKey; todo?: string }> = {
   "dialog-main": { owner: "admin", mediaServer: "dialog" },
   "livekit-main": { owner: "admin", mediaServer: "livekit" },
   switch: { owner: "admin", mediaServer: "dialog" },
@@ -28,15 +30,34 @@ const ROOMS: Record<RoomName, { owner: AccountName; mediaServer: MediaServer; to
   "speak-x": { owner: "admin", mediaServer: "dialog" },
   "listen-y": { owner: "member1", mediaServer: "dialog" },
   "listen-z": { owner: "member2", mediaServer: "dialog" },
-  nimpro: { owner: "admin", mediaServer: "dialog", todo: "a scene with waypoints N-impro-seat-01 to N-impro-seat-05 (built in Spoke)" },
+  nimpro: { owner: "admin", mediaServer: "dialog", scene: "nimpro" },
   bitecs: { owner: "admin", mediaServer: "dialog", todo: "turn on the bitECS based client and the Behavior Graph add-on" }
 };
 
-const SCENE_NAME = "Crater e2e";
-const SCENE_SOURCE = "services/spoke/test/fixtures/test-assets/crater.glb, wrapped by assets/generate.ts";
+type SceneSpec = { name: string; file: string; thumbnail: string; description: string; source: string };
+
+const SCENES: Record<SceneKey, SceneSpec> = {
+  crater: {
+    name: "Crater e2e",
+    file: SCENE_FILE,
+    thumbnail: SCENE_THUMBNAIL,
+    description: "Crater terrain from Spoke's test assets with a sun, sky, ambient light and eight spawn points",
+    source: "services/spoke/test/fixtures/test-assets/crater.glb, wrapped by assets/generate.ts"
+  },
+  // Plan 1.5: the nimpro room needs waypoints N-impro-seat-01 to -05; built by assets/generate.ts, not in Spoke
+  nimpro: {
+    name: "N-impro e2e",
+    file: NIMPRO_SCENE_FILE,
+    thumbnail: NIMPRO_SCENE_THUMBNAIL,
+    description: "Crater terrain with the N-impro set: five occupiable seat waypoints and the question slide (a PDF)",
+    source: "services/spoke/test/fixtures/test-assets/crater.glb with the N-impro set, made by assets/generate.ts"
+  }
+};
 
 const previous: Partial<Fixtures> = fs.existsSync(FIXTURES_FILE) ? JSON.parse(fs.readFileSync(FIXTURES_FILE, "utf8")) : {};
-if (!fs.existsSync(SCENE_FILE)) throw new Error("assets/scenes/crater.glb is missing: run npx tsx assets/generate.ts");
+for (const file of [SCENE_FILE, NIMPRO_SCENE_FILE, QUESTION_PDF]) {
+  if (!fs.existsSync(file)) throw new Error(`${path.relative(process.cwd(), file)} is missing: run npx tsx assets/generate.ts`);
+}
 
 console.log("accounts: signing tokens in reticulum");
 const accounts = mintTokens();
@@ -51,21 +72,26 @@ for (const account of Object.values(accounts)) {
   console.log(`  ${account.name} ${account.email} account ${account.accountId}${account.isAdmin ? " (admin)" : ""}: profile desk-${account.name} signed in`);
 }
 
-const scene = await ensureScene(api, accounts.admin);
-console.log(`scene: ${scene.sceneId} ${scene.name}`);
+const scenes = {} as Record<SceneKey, NonNullable<Fixtures["scene"]>>;
+for (const key of Object.keys(SCENES) as SceneKey[]) {
+  scenes[key] = await ensureScene(api, accounts.admin, key);
+  console.log(`scene ${key}: ${scenes[key].sceneId} ${scenes[key].name}`);
+}
+const scene = scenes.crater;
 
 const rooms = {} as Fixtures["rooms"];
 for (const [name, spec] of Object.entries(ROOMS) as [RoomName, (typeof ROOMS)[RoomName]][]) {
   const owner = accounts[spec.owner];
+  const roomScene = scenes[spec.scene ?? "crater"];
   const known = previous.rooms?.[name]?.hubId;
-  let hubId = known && roomUsable(known, owner.accountId, scene.sceneId) ? known : "";
+  let hubId = known && roomUsable(known, owner.accountId, roomScene.sceneId) ? known : "";
   if (!hubId) {
-    hubId = await createRoom(api, owner, `e2e ${name}`, scene.sceneId);
+    hubId = await createRoom(api, owner, `e2e ${name}`, roomScene.sceneId);
     console.log(`room ${name}: created ${hubId} (owner ${spec.owner})`);
   } else {
     console.log(`room ${name}: reusing ${hubId}`);
   }
-  rooms[name] = { hubId, owner: spec.owner, mediaServer: spec.mediaServer, sceneId: scene.sceneId, ...(spec.todo ? { todo: spec.todo } : {}) };
+  rooms[name] = { hubId, owner: spec.owner, mediaServer: spec.mediaServer, sceneId: roomScene.sceneId, ...(spec.todo ? { todo: spec.todo } : {}) };
 }
 
 // Media server per room, through each owner's hub channel
@@ -96,6 +122,7 @@ for (const ownerName of ["admin", "member1", "member2"] as AccountName[]) {
 const fixtures: Fixtures = {
   host: HOST,
   scene,
+  scenes,
   accounts: Object.fromEntries(
     Object.values(accounts).map(a => [a.name, { email: a.email, accountId: a.accountId, isAdmin: a.isAdmin }])
   ) as Fixtures["accounts"],
@@ -106,11 +133,13 @@ writeFixtures(fixtures);
 await api.dispose();
 console.log(`wrote ${path.relative(process.cwd(), FIXTURES_FILE)}`);
 
-/** The scene, published once: upload the model and thumbnail, then create the scene as the admin */
-async function ensureScene(api: APIRequestContext, admin: SignedAccount): Promise<NonNullable<Fixtures["scene"]>> {
+/** A scene, published once: upload the model and thumbnail, then create the scene as the admin */
+async function ensureScene(api: APIRequestContext, admin: SignedAccount, key: SceneKey): Promise<NonNullable<Fixtures["scene"]>> {
+  const { name: SCENE_NAME, file, thumbnail, description, source: SCENE_SOURCE } = SCENES[key];
   // Reuse the scene of an earlier run: the one in fixtures.json, else the admin's newest scene of that name
   const known =
-    previous.scene?.sceneId ||
+    previous.scenes?.[key]?.sceneId ||
+    (key === "crater" ? previous.scene?.sceneId : undefined) ||
     sql(
       `select scene_sid from ret0.scenes where name = ${sqlText(SCENE_NAME)} and account_id = ${admin.accountId} and state = 'active' order by inserted_at desc limit 1`
     );
@@ -131,14 +160,14 @@ async function ensureScene(api: APIRequestContext, admin: SignedAccount): Promis
     // As Spoke does: the upload's access token is the file token the scene API promotes with
     return { id: body.file_id as string, token: body.meta.access_token as string };
   };
-  const model = await upload(SCENE_FILE, "model/gltf-binary");
-  const shot = await upload(SCENE_THUMBNAIL, "image/jpeg");
+  const model = await upload(file, "model/gltf-binary");
+  const shot = await upload(thumbnail, "image/jpeg");
   const res = await api.post("/api/v1/scenes", {
     headers: auth(admin),
     data: {
       scene: {
         name: SCENE_NAME,
-        description: "Crater terrain from Spoke's test assets with a sun, sky, ambient light and eight spawn points",
+        description,
         allow_remixing: false,
         // Promotion would announce the scene; nothing is announced from tests
         allow_promotion: false,
