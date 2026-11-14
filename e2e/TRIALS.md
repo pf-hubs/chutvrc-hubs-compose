@@ -117,6 +117,40 @@ The QUEST profile therefore holds window frame callbacks while IWER's session is
 
 Still to look at on a real headset: with the leftover callback held, leaving VR through the client's own exit (`scene.exitVR()`, where `exit-vr` restores the functions before the session's `end`) can leave two window loops running (the held callback and the one three.js restarts), so the scene would tick twice per frame after the first exit.
 
+### Step 7: what T5 needs from the emulated headset
+
+Trials `trials/step7-t5.ts`, `step7-calibration.ts`, `step7-rest-frames.ts` and `step7-vr-entry.ts` (results under `evidence/trials/step7/`).
+
+What the client sends against what the emulated devices report (devices set to known poses, the client's objects read back), in the device's own frame:
+
+| Part | Offset | Where it comes from |
+| --- | --- | --- |
+| head (`#avatar-pov-node`) | (-0.0315, 0, 0), no turn | the left eye's camera, not the middle of the eyes |
+| left controller | (-0.025, -0.03, 0.12), no turn | `LEFT_HAND_OFFSET` in `src/systems/userinput/devices/webxr-controller.js`, applied to IWER's target ray |
+| right controller | (0.025, -0.03, 0.12), no turn | `RIGHT_HAND_OFFSET`, the same |
+
+The motion battery (`motions/battery.ts`) is therefore written as the poses the client should send and turned into device poses by `deviceFromClient` (`clients/motion.ts`); the probe's own check (`ikOwnCheck`) finds the headset's own pose through the probe's maths within 0 mm of the scene's objects.
+
+- Thumbsticks: `updateAxes("thumbstick", x, y)` works. The left stick walks (full forward for 1 s: 4.8 m), the right stick snap-turns 45° per push. The timeline player steps stick and button values at keyframes and lets the sticks go when a timeline ends.
+- Observers: two DESK clients at one spot see each other's avatar from inside; the harness moves the other models 100 m under the floor on each observer's page (the name tag goes with the neck). The subject stands at the crater's centre facing -z, lit from the front (the sun travels along (0.29, -0.82, 0.50)); the observers 2.2 m away, 35° to its left, looking down at 0.95 m.
+- Frames: the DevTools screencast on each observer gives 45 to 52 frames a second, each stamped with the time it was produced; the stamps match the PC's clock within a few milliseconds, so two observers' frames are matched by time. All three clients stay at 60 fps with both screencasts and the subject's Playwright video running. The observers' own Playwright video is turned off.
+- Re-announce: once, one observer drew no model for the subject after one re-announce; T5 repeats it until both draw the model and receive poses. Once neither observer received a single pose from the subject (the sender-side one-way failure of BASELINE.md #21); T5 then lets the subject enter again.
+- Desktop subject (`step7-desktop-look.ts`): a left-button drag turns the first-person view by 0.28° per pixel sideways and 0.31° per pixel up and down (420 px: 118°; 200 px: 61.5°), which `motions/battery.ts` uses for the desktop look and turn. With `?thirdPerson` the O key switches the camera behind the avatar (camera mode 1), but there a drag changes neither the pov node nor the head the client sends (0° after the same 420 px), so the desktop motions run in first person and the third-person camera is used only for the subject's own view at the end.
+
+#### The new solver's height scale and the first frames in VR
+
+The new solver scales heights by the user's eye height over the model's, taken from the first frame it solves the avatar in VR with the headset higher than 0.5 m (`src/avatar/ik/calibration.ts`, `calibrateHeight`: "Takes the ratio once"), and keeps it for the life of the avatar's solver; `AvatarIkManager.recalibrate()` exists but nothing calls it.
+
+`step7-vr-entry.ts`: an observer with the new solver on is in the room; a QUEST client enters (and so enters VR). The observer's data channel bus shows what the headset sent:
+
+```
+3:1.6 4:1.6 5:1.6 6:1.6 7:2.392vr 8:2.392vr 9:2.392vr 10:1.6vr 11:1.6vr ...      (sequence:head height)
+```
+
+The first three packets in VR carry the head at 2.39 m instead of 1.60 m. The observer's copy of the head rises over three to six frames toward that height (1.65, 1.83, 1.99 m; 1.62, 1.69, 1.83, 1.98, 2.14, 2.22 m) and drops back. Where the observer already had the subject's model, its solver calibrated on one of those frames: scale 1.152 and 1.288 (the head taken as 1.99 and 2.22 m) against 0.939 where the model arrived after the transient (`step7-calibration.ts`, `step7-rest-frames.ts`: the model's rest frames and eye height, 1.726 m for the Ready Player Me sample, are the same at every load). With 1.21 (a step 7 debug run, `2026-11-14T18-40-22-211Z`, `t5-summary-dialog/sheet-rpm.png`) the observer showed the avatar crouching through every motion, the hands 19 to 23 cm off the controllers.
+
+So T5 starts every client with the old solver and turns the new one on for the new observer (and for the subject's own view) once the subject stands still in place, and checks that the scale is the standing headset's eye height over the model's. Whether a Quest Browser sends the same transient on entering VR is for the real device; the latch on the first frame does not depend on the emulation.
+
 ## (c) IOS (WebKit)
 
 `trials/c-webkit.ts`, iPhone 15 descriptor.
