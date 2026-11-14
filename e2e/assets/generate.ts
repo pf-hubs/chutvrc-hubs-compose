@@ -159,8 +159,36 @@ export const PAGES_PDF = path.join(ASSETS_DIR, "media", "pages.pdf");
 export const PAGES_PDF_URL = `${ASSETS_URL}/media/pages.pdf`;
 export const VIDEO_FILE = path.join(ASSETS_DIR, "media", "clock.mp4");
 export const VIDEO_URL = `${ASSETS_URL}/media/clock.mp4`;
+/** An image and a GLB to place (T6.3, T7.2): copies of two of Spoke's test assets */
+export const IMAGE_FILE = path.join(ASSETS_DIR, "media", "picture.png");
+export const IMAGE_URL = `${ASSETS_URL}/media/picture.png`;
+export const MODEL_FILE = path.join(ASSETS_DIR, "media", "duck.glb");
+export const MODEL_URL = `${ASSETS_URL}/media/duck.glb`;
 /** Where the N-impro question slide stands, and the seats around it */
 export const NIMPRO_SEATS = 5;
+
+export const BITECS_SCENE_FILE = path.join(ASSETS_DIR, "scenes", "bitecs.glb");
+export const BITECS_SCENE_THUMBNAIL = path.join(ASSETS_DIR, "scenes", "bitecs.jpg");
+/** Where the media frame of the bitecs scene stands: the middle of the spawn ring, at eye height */
+export const BITECS_FRAME = { x: 0, y: 1.6, z: 0, size: 1 };
+
+/**
+ * The bitecs room's scene for T6.7: the Crater scene with one media frame (any 2D media) in the middle of the
+ * spawn ring, which the clients face when they enter. A Behavior Graph example exported from Blender
+ * (assets/behavior-graph/README.md) is published as a scene of its own when it is there.
+ */
+function bitecsGroup(): GltfNode[] {
+  return [
+    {
+      name: "Media Frame",
+      translation: [BITECS_FRAME.x, BITECS_FRAME.y, BITECS_FRAME.z],
+      ...hubs({
+        "media-frame": { bounds: { x: BITECS_FRAME.size, y: BITECS_FRAME.size, z: BITECS_FRAME.size }, mediaType: "all-2d", snapToCenter: true },
+        networked: { id: stableId("bitecs-media-frame") }
+      })
+    }
+  ];
+}
 
 /** A stable uuid-shaped id from a name, so the scene's networked ids stay the same when it is rebuilt */
 function stableId(name: string): string {
@@ -274,6 +302,11 @@ function makeMedia(ffmpeg: string) {
     { cwd: fontDir }
   );
   console.log(`media: ${path.relative(ASSETS_DIR, VIDEO_FILE)}`);
+  // An image and a model to place: Spoke's test assets, copied (MPL 2.0, see SOURCES.md)
+  const spokeAssets = path.join(ASSETS_DIR, "..", "..", "services", "spoke", "test", "fixtures", "test-assets");
+  fs.copyFileSync(path.join(spokeAssets, "spoke-logo.png"), IMAGE_FILE);
+  fs.copyFileSync(path.join(spokeAssets, "duck.glb"), MODEL_FILE);
+  console.log(`media: ${path.relative(ASSETS_DIR, IMAGE_FILE)}, ${path.relative(ASSETS_DIR, MODEL_FILE)}`);
 }
 
 if (process.argv[1]?.replace(/\\/g, "/").endsWith("assets/generate.ts")) {
@@ -283,5 +316,6 @@ if (process.argv[1]?.replace(/\\/g, "/").endsWith("assets/generate.ts")) {
   if (!only || only === "scenes") {
     buildScene(SCENE_FILE, SCENE_THUMBNAIL);
     buildScene(NIMPRO_SCENE_FILE, NIMPRO_SCENE_THUMBNAIL, nimproGroup(), "Spoke test asset crater.glb with the N-impro set, made by e2e/assets/generate.ts");
+    buildScene(BITECS_SCENE_FILE, BITECS_SCENE_THUMBNAIL, bitecsGroup(), "Spoke test asset crater.glb with a media frame, made by e2e/assets/generate.ts");
   }
 }

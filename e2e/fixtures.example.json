@@ -18,6 +18,12 @@
       "name": "N-impro e2e",
       "modelUrl": "",
       "source": "services/spoke/test/fixtures/test-assets/crater.glb with the N-impro set, made by assets/generate.ts"
+    },
+    "bitecs": {
+      "sceneId": "",
+      "name": "bitecs e2e",
+      "modelUrl": "",
+      "source": "services/spoke/test/fixtures/test-assets/crater.glb with a media frame, made by assets/generate.ts"
     }
   },
   "accounts": {
@@ -96,8 +102,7 @@
       "hubId": "",
       "owner": "admin",
       "mediaServer": "dialog",
-      "sceneId": "",
-      "todo": "turn on the bitECS based client and the Behavior Graph add-on"
+      "sceneId": ""
     }
   }
 }

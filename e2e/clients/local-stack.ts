@@ -39,3 +39,33 @@ export async function answerRoomLinks(client: Client, roomUrls: string[]) {
     });
   });
 }
+
+const CONTENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  mp4: "video/mp4",
+  glb: "model/gltf-binary",
+  pdf: "application/pdf"
+};
+
+/**
+ * The same for the test media of the assets service (https://hubs.local:3001/...): the bitECS based client
+ * resolves every media URL through reticulum's media resolver, which refuses hubs.local here (an internal
+ * address inside its container) and answers 500, so nothing placed from the assets service would load. The
+ * harness answers as reticulum does for a public URL: the URL itself and its content type. The old loader
+ * does not ask for these URLs. Returns the URLs it answered, for the evidence.
+ */
+export async function answerAssetUrls(client: Client, assetsUrl: string): Promise<string[]> {
+  const answered: string[] = [];
+  await client.page.route("**/api/v1/media", async route => {
+    const request = route.request();
+    const url: string | undefined = request.method() === "POST" ? request.postDataJSON()?.media?.url : undefined;
+    if (!url || !url.startsWith(`${assetsUrl}/`)) return route.continue();
+    const type = CONTENT_TYPES[url.split("?")[0].split(".").pop()?.toLowerCase() ?? ""];
+    if (!type) return route.continue();
+    answered.push(url);
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ origin: url, meta: { expected_content_type: type } }) });
+  });
+  return answered;
+}

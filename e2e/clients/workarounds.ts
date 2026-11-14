@@ -24,3 +24,38 @@ export async function reannounceAvatars(clients: Client[], evidence: Evidence, w
   );
   return sent;
 }
+
+/**
+ * Known failures 3 and 21 of BASELINE.md (Dialog): when clients join together, one client's sending can fail
+ * for the whole session: nobody receives its poses or its voice, while it receives everyone. A test whose
+ * subject is something else lets such a client enter the room again (a page load, as a person reloading
+ * would), at most twice, and records it as "workaround applied". Returns the clients that entered again.
+ */
+export async function reenterSilentSenders(clients: Client[], evidence: Evidence, why: string, enter: (c: Client) => Promise<unknown>) {
+  const reentered: string[] = [];
+  const people = clients.filter(c => c.profile !== "BOT");
+  for (let round = 1; round <= 2; round++) {
+    const ids = await Promise.all(clients.map(c => c.page.evaluate(() => (window as any).__e2eApi?.clientId() ?? "").catch(() => "")));
+    const seqs = () =>
+      Promise.all(clients.map(r => r.page.evaluate(ids => ids.map((id: string) => (id ? ((window as any).__e2eApi?.pose(id)?.seq ?? null) : null)), ids).catch(() => ids.map(() => null))));
+    const before = await seqs();
+    await clients[0].page.waitForTimeout(2000);
+    const after = await seqs();
+    const silent = people.filter(sender => {
+      const j = clients.indexOf(sender);
+      const others = clients.filter((_, i) => i !== j);
+      return others.length > 0 && others.every(r => {
+        const i = clients.indexOf(r);
+        return after[i][j] === null || after[i][j] === before[i][j];
+      });
+    });
+    if (!silent.length) break;
+    for (const c of silent) {
+      reentered.push(c.name);
+      evidence.note(`workaround applied: nobody received ${c.name}'s poses after entry (known failures 3 and 21: its sending failed at the joint join); ${c.name} enters the room again (round ${round}), ${why}`);
+      await enter(c);
+    }
+    await clients[0].page.waitForTimeout(3000);
+  }
+  return reentered;
+}

@@ -211,7 +211,8 @@ export async function waitForRoomLink(page: Page, src: string, timeout = 60_000)
   await page.waitForFunction(
     ({ finder, src }) => !!new Function("arg", finder)({ src })?.components["hover-menu__hubs-item"],
     { finder: FIND_MEDIA, src },
-    { timeout }
+    // Polled on a timer: a headset in VR holds the window's frame callbacks (clients/motion.ts)
+    { timeout, polling: 250 }
   );
 }
 

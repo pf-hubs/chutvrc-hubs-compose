@@ -17,9 +17,9 @@ import { sql, sqlText } from "../lib/stack";
 import { SFU_ID, writeFixtures, type AccountName, type Fixtures, type MediaServer, type RoomName } from "../lib/fixtures";
 import { launchClient } from "../clients/launch";
 import { ensureSignedIn, mintTokens, type SignedAccount } from "../clients/signin";
-import { NIMPRO_SCENE_FILE, NIMPRO_SCENE_THUMBNAIL, QUESTION_PDF, SCENE_FILE, SCENE_THUMBNAIL } from "../assets/generate";
+import { BITECS_SCENE_FILE, BITECS_SCENE_THUMBNAIL, NIMPRO_SCENE_FILE, NIMPRO_SCENE_THUMBNAIL, QUESTION_PDF, SCENE_FILE, SCENE_THUMBNAIL } from "../assets/generate";
 
-type SceneKey = "crater" | "nimpro";
+type SceneKey = "crater" | "nimpro" | "bitecs";
 
 const ROOMS: Record<RoomName, { owner: AccountName; mediaServer: MediaServer; scene?: SceneKey; todo?: string }> = {
   "dialog-main": { owner: "admin", mediaServer: "dialog" },
@@ -31,7 +31,8 @@ const ROOMS: Record<RoomName, { owner: AccountName; mediaServer: MediaServer; sc
   "listen-y": { owner: "member1", mediaServer: "dialog" },
   "listen-z": { owner: "member2", mediaServer: "dialog" },
   nimpro: { owner: "admin", mediaServer: "dialog", scene: "nimpro" },
-  bitecs: { owner: "admin", mediaServer: "dialog", todo: "turn on the bitECS based client and the Behavior Graph add-on" }
+  // T6.7 turns on the bitECS based client and the Behavior Graph add-on in the room's settings itself
+  bitecs: { owner: "admin", mediaServer: "dialog", scene: "bitecs" }
 };
 
 type SceneSpec = { name: string; file: string; thumbnail: string; description: string; source: string };
@@ -51,11 +52,19 @@ const SCENES: Record<SceneKey, SceneSpec> = {
     thumbnail: NIMPRO_SCENE_THUMBNAIL,
     description: "Crater terrain with the N-impro set: five occupiable seat waypoints and the question slide (a PDF)",
     source: "services/spoke/test/fixtures/test-assets/crater.glb with the N-impro set, made by assets/generate.ts"
+  },
+  // Plan 1.5: the bitecs room (T6.7) needs a media frame; built by assets/generate.ts
+  bitecs: {
+    name: "bitecs e2e",
+    file: BITECS_SCENE_FILE,
+    thumbnail: BITECS_SCENE_THUMBNAIL,
+    description: "Crater terrain with a media frame in the middle of the spawn ring, for the bitECS based client",
+    source: "services/spoke/test/fixtures/test-assets/crater.glb with a media frame, made by assets/generate.ts"
   }
 };
 
 const previous: Partial<Fixtures> = fs.existsSync(FIXTURES_FILE) ? JSON.parse(fs.readFileSync(FIXTURES_FILE, "utf8")) : {};
-for (const file of [SCENE_FILE, NIMPRO_SCENE_FILE, QUESTION_PDF]) {
+for (const file of [SCENE_FILE, NIMPRO_SCENE_FILE, BITECS_SCENE_FILE, QUESTION_PDF]) {
   if (!fs.existsSync(file)) throw new Error(`${path.relative(process.cwd(), file)} is missing: run npx tsx assets/generate.ts`);
 }
 
