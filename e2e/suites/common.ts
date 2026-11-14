@@ -9,6 +9,7 @@ import { CONTROL_HZ, type SlotName } from "../assets/media";
 import { MIN_FRAME_RATE, measureFrameRate, readSession, type Session } from "../probes/session";
 import { PILOT_HEARD, PILOT_SILENT, heardPilot, type PilotResult } from "../probes/audio";
 import { SEND_WATCH, collectErrors, countByReason, reticulumIoHosts, type AllowEntry } from "../probes/errors";
+import { capabilities } from "../probes/compat";
 import { CONSOLE_ALLOW_LIST } from "./console-allowlist";
 
 export const heard = (r: PilotResult) => r.ratio >= PILOT_HEARD && r.controlRatio <= PILOT_SILENT;
@@ -57,7 +58,22 @@ export async function startClients(evidence: Evidence, seats: Seat[]): Promise<C
 export async function enterAll(evidence: Evidence, clients: Client[], hubId: string, opts: Omit<EnterOptions, "displayName"> = {}, file = "entry.json") {
   const timings = await Promise.all(clients.map(c => enterRoom(c, hubId, { ...opts, displayName: c.name })));
   evidence.saveJson(file, Object.fromEntries(clients.map((c, i) => [c.name, timings[i]])), "entry timings (ms from opening the page)");
+  if (clients[0]) await noteClientApi(evidence, clients[0]);
   return timings;
+}
+
+const noted = new WeakSet<Evidence>();
+
+/** Notes once per test which client API the build has (probes/compat.ts): what is not applicable follows from it */
+export async function noteClientApi(evidence: Evidence, client: Client) {
+  if (noted.has(evidence)) return;
+  const caps = await capabilities(client.page).catch(() => null);
+  if (!caps) return;
+  noted.add(evidence);
+  evidence.note(
+    `client API: ${caps.kind === "session" ? "APP.sfu is a session" : "APP.sfu is the media server adapter"}; ` +
+      `packet log (APP.sfu.bus) ${caps.packetLog ? "yes" : "no"}, pose store (APP.avatarPoses) ${caps.poseStore ? "yes" : "no, poses read from the #avatar-RIG and #avatar-HEAD transforms"}`
+  );
 }
 
 /** The usual pair: A the admin (slot a), B member 1 (slot b), entered into `roomName` */

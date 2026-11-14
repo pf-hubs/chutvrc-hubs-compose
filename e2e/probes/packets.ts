@@ -4,7 +4,11 @@
 //
 // The bus is the one the toolbar's Recording button uses. The probe refuses to start while that
 // recording runs, so it never takes a user's recording away.
+//
+// The bus came with the transport refactor; on the adapter build (develop) the probe throws NotApplicable
+// (probes/compat.ts), and a check that needs it is recorded as not applicable on that build.
 import type { Page } from "@playwright/test";
+import { NotApplicable } from "./compat";
 
 export type PacketEntry = {
   /** Label */
@@ -19,16 +23,22 @@ export type PacketEntry = {
   m?: string;
 };
 
-/** Clears the bus's recording and starts it; throws when the Recording button's recording is running */
+/**
+ * Clears the bus's recording and starts it; throws when the Recording button's recording is running, and
+ * NotApplicable on a build without the bus
+ */
 export async function startPacketLog(page: Page) {
   const problem = await page.evaluate(() => {
-    const bus = (window as any).APP?.sfu?.bus;
+    const sfu = (window as any).APP?.sfu;
+    if (sfu && !("bus" in sfu)) return "not applicable";
+    const bus = sfu?.bus;
     if (!bus) return "no data channel bus (not connected to a media server)";
     if (bus.isRecording) return "the bus is already recording (the Recording button is on)";
     bus.takeRecording();
     bus.startRecording();
     return null;
   });
+  if (problem === "not applicable") throw new NotApplicable("packet log: this build has no data channel bus (APP.sfu.bus)");
   if (problem) throw new Error(`packet log not started: ${problem}`);
 }
 

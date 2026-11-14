@@ -1,4 +1,5 @@
-// Session probe (plan 3.2): what the client's media server session reports, read from APP.sfu.
+// Session probe (plan 3.2): what the client's media server session reports, read from APP.sfu through
+// the capability layer (probes/compat.ts), so it reads the same on the session and the adapter builds.
 import type { Page } from "@playwright/test";
 
 export type Session = {
@@ -17,21 +18,7 @@ export type Session = {
 };
 
 export function readSession(page: Page): Promise<Session> {
-  return page.evaluate(() => {
-    const APP = (window as any).APP;
-    const sfu = APP?.sfu;
-    return {
-      sfuId: sfu?.sfuId ?? null,
-      isConnected: !!sfu?.isConnected,
-      clientId: sfu?.clientId ?? "",
-      hubId: APP?.hub?.hub_id ?? null,
-      micTrack: sfu?.getLocalMicTrack?.()?.readyState ?? null,
-      micEnabled: sfu?.isMicEnabled ?? null,
-      isRecording: sfu?.bus?.isRecording ?? null,
-      pageLoadedAt: performance.timeOrigin,
-      url: location.href
-    };
-  });
+  return page.evaluate(() => (window as any).__e2eApi.session());
 }
 
 export type Peers = {
@@ -46,16 +33,26 @@ export type Peers = {
 /** The other clients this client knows of, three ways */
 export function readPeers(page: Page): Promise<Peers> {
   return page.evaluate(() => {
-    const APP = (window as any).APP;
-    const own = APP.sfu?.clientId;
-    const models: Map<string, number> | undefined = APP.sfu?.avatarSync?.models?.avatarEidByClientId;
-    const poses: Map<string, unknown> | undefined = APP.avatarPoses?.poses;
+    const api = (window as any).__e2eApi;
+    const own = api.clientId();
     return {
-      models: models ? [...models.keys()].filter(id => id !== own) : [],
-      poses: poses ? [...poses.keys()].filter(id => id !== own) : [],
+      models: [...api.modelEids().keys()].filter((id: string) => id !== own),
+      poses: api.poseIds().filter((id: string) => id !== own),
       avatarEntities: [...document.querySelectorAll("[networked-avatar]")].filter(el => el.id !== "avatar-rig").length
     };
   });
+}
+
+/** Whether `page` draws `clientId`'s avatar: a model entity whose object and every parent are visible */
+export function drawsAvatar(page: Page, clientId: string): Promise<{ model: boolean; visible: boolean }> {
+  return page.evaluate(clientId => {
+    const APP = (window as any).APP;
+    const eid = (window as any).__e2eApi.modelEids().get(clientId);
+    if (eid === undefined) return { model: false, visible: false };
+    let visible = true;
+    for (let o = APP.world.eid2obj.get(eid); o; o = o.parent) if (!o.visible) visible = false;
+    return { model: true, visible };
+  }, clientId);
 }
 
 /**
@@ -84,11 +81,11 @@ export function measureFrameRate(page: Page, ms = 3000): Promise<{ raf: number; 
 
 export const MIN_FRAME_RATE = 55;
 
-/** The audio and video tracks `page` keeps for another client (the remote stream of its media session) */
+/** The audio and video tracks `page` keeps for another client (its remote stream, or the adapter's consumers) */
 export function remoteTracks(page: Page, clientId: string): Promise<{ audio: string[]; video: string[] }> {
   return page.evaluate(clientId => {
-    const stream: MediaStream | undefined = (window as any).APP?.sfu?.media?.remoteStream(clientId);
+    const tracks: MediaStreamTrack[] = (window as any).__e2eApi.remoteTracks(clientId);
     const describe = (t: MediaStreamTrack) => `${t.id.slice(0, 8)} ${t.readyState}${t.muted ? " muted" : ""}`;
-    return { audio: stream?.getAudioTracks().map(describe) ?? [], video: stream?.getVideoTracks().map(describe) ?? [] };
+    return { audio: tracks.filter(t => t.kind === "audio").map(describe), video: tracks.filter(t => t.kind === "video").map(describe) };
   }, clientId);
 }

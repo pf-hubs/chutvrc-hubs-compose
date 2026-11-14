@@ -8,6 +8,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "@playwri
 import { BASE_URL, PROFILES_DIR } from "../lib/env";
 import { composeE2e } from "../lib/stack";
 import { CONNECTION_WATCH } from "../probes/connections";
+import { COMPAT_SHIM } from "../probes/compat";
 import { MEDIA_SLOTS, clipPath, type SlotName } from "../assets/media";
 import type { Evidence } from "../report/evidence";
 
@@ -60,7 +61,8 @@ const COMMON_ARGS = [
  * - a no-op __name: tsx (esbuild keepNames) wraps named functions in __name(...), which page.evaluate
  *   would otherwise carry into a page that does not define it;
  * - the development build's error overlay is hidden: it covers the page on any uncaught error and takes
- *   every click (the errors are still collected).
+ *   every click (the errors are still collected);
+ * - window.__e2eApi, the capability layer the probes read the client through (probes/compat.ts).
  */
 const COMMON_INIT = `
 globalThis.__name = globalThis.__name || (f => f);
@@ -68,7 +70,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const style = document.createElement("style");
   style.textContent = "#webpack-dev-server-client-overlay { display: none !important; }";
   document.head.appendChild(style);
-});`;
+});
+${COMPAT_SHIM}`;
 
 export type LaunchOptions = {
   profile: ProfileId;

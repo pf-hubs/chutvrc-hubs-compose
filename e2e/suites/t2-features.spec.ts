@@ -11,6 +11,8 @@ import { launchDeviceSimulator } from "../clients/iot";
 import { QUESTION_PDF_URL } from "../assets/generate";
 import { readPose } from "../probes/poses";
 import { messagesOf, startPacketLog, summarisePackets, takePacketLog, type PacketEntry } from "../probes/packets";
+import { readConnections } from "../probes/connections";
+import { capabilities } from "../probes/compat";
 import { blockId, blockTitle, runsOn } from "./blocks";
 import { closingChecks, connectedCheck, enterAll, exceptionsSince, frameRateCheck, idOf, logMarks, mainRoom, startClients, waitUntil } from "./common";
 
@@ -73,7 +75,9 @@ const nimproMessages = (log: PacketEntry[]) => log.filter(e => e.l === "#nimpro"
 
 async function nimproRound(evidence: Evidence, admin: Client, members: Client[]) {
   const all = [admin, ...members];
-  await Promise.all(all.map(c => startPacketLog(c.page)));
+  // The packet log needs the data channel bus; on the adapter build the round still runs, without it
+  const logged = (await capabilities(admin.page)).packetLog;
+  if (logged) await Promise.all(all.map(c => startPacketLog(c.page)));
   // Seats 1, 3 and 5: neighbouring seats' icons overlap on the screen from where members stand
   const seatOf = new Map(members.map((m, i) => [m, 2 * i + 1]));
 
@@ -151,7 +155,7 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
 
   await evidence.check("Seated members carry the animation state N-impro sets (2), as the admin sees them", "F9 B8", async () => {
     const ids = await Promise.all(members.map(idOf));
-    const states = await admin.page.evaluate(ids => ids.map(id => (window as any).APP.avatarPoses.get(id)?.animState ?? null), ids);
+    const states = await admin.page.evaluate(ids => ids.map(id => (window as any).__e2eApi.pose(id)?.animState ?? null), ids);
     return { ok: states.every(s => s === 2), summary: members.map((m, i) => `${m.name} animState ${states[i]}`).join(", "), data: states };
   });
 
@@ -169,6 +173,12 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
     return { ok: !!followed.value, summary: `page ${before} -> ${pages.join("/")} (${all.map(c => c.name).join("/")})`, data: pages };
   });
 
+  if (!logged) {
+    evidence.notApplicable("Every #nimpro message arrives (packet logs)", "F9", "the packet log needs the data channel bus (APP.sfu.bus)");
+    await input.chutvrcAction(admin.page, "Nimpro", "Quit Nimpro").catch(() => {});
+    await admin.page.keyboard.press("Escape").catch(() => {});
+    return;
+  }
   const logs = await Promise.all(all.map(c => takePacketLog(c.page)));
   all.forEach((c, i) => evidence.saveJson(`packets-nimpro-${c.name}.json`, { summary: summarisePackets(logs[i]), nimpro: nimproMessages(logs[i]) }, `${c.name}'s packet log during the N-impro round`));
 
@@ -230,9 +240,23 @@ async function channelProbes(evidence: Evidence, a: Client, others: Client[]) {
   });
 }
 
+/**
+ * Messages received on the #laserPointer data channel, from the connections probe: Dialog opens one channel
+ * per label, so this counts laser pointer messages on a build without the packet log; null when no client
+ * connection has such a channel (LiveKit carries every label on two channels)
+ */
+async function laserChannelMessages(c: Client): Promise<number | null> {
+  const channels = (await readConnections(c.page)).connections.flatMap(x => x.dataChannels).filter(d => d.label === "#laserPointer");
+  return channels.length ? channels.reduce((n, d) => n + d.messagesReceived, 0) : null;
+}
+
 async function laserPointer(evidence: Evidence, a: Client, others: Client[]) {
   return evidence.check("Laser pointer: A speaks publicly (Broadcast > Start Speaking) and points at the scene; the others receive its position", "F3", async () => {
-    await Promise.all(others.map(c => startPacketLog(c.page)));
+    // With the packet log the messages with a position are counted; without it (adapter build) the
+    // messages on Dialog's #laserPointer channel, which on that build carries positions only
+    const logged = (await capabilities(a.page)).packetLog;
+    const channelBefore = logged ? [] : await Promise.all(others.map(laserChannelMessages));
+    if (logged) await Promise.all(others.map(c => startPacketLog(c.page)));
     const marks = logMarks([a]);
     await input.chutvrcAction(a.page, "Broadcast", "Start Speaking");
     await a.page.keyboard.press("Escape").catch(() => {});
@@ -245,15 +269,25 @@ async function laserPointer(evidence: Evidence, a: Client, others: Client[]) {
       await a.page.waitForTimeout(100);
     }
     await evidence.screenshot(a, "pointing");
-    const logs = await Promise.all(others.map(c => takePacketLog(c.page)));
+    const logs = logged ? await Promise.all(others.map(c => takePacketLog(c.page))) : [];
+    const channelAfter = logged ? [] : await Promise.all(others.map(laserChannelMessages));
     await input.chutvrcAction(a.page, "Broadcast", "Stop Speaking").catch(() => {});
     await a.page.keyboard.press("Escape").catch(() => {});
-    const positions = logs.map(l => messagesOf(l, "#laserPointer", "received", /^1\|/).length);
-    const any = logs.map(l => messagesOf(l, "#laserPointer", "received").length);
+    if (!logged && channelAfter.every(n => n === null)) {
+      return {
+        ok: "not applicable" as const,
+        summary: `A speaking publicly: ${speaking}; no packet log on this build and no #laserPointer data channel to count (LiveKit carries every label on two channels)`,
+        data: { speaking }
+      };
+    }
+    const positions = logged
+      ? logs.map(l => messagesOf(l, "#laserPointer", "received", /^1\|/).length)
+      : channelAfter.map((n, i) => (n ?? 0) - (channelBefore[i] ?? 0));
+    const any = logged ? logs.map(l => messagesOf(l, "#laserPointer", "received").length) : positions;
     return {
       ok: speaking && positions.every(n => n > 0),
       summary:
-        `A speaking publicly: ${speaking}; #laserPointer messages with a position received: ${others.map((c, i) => `${c.name} ${positions[i]} (of ${any[i]})`).join(", ")}; exceptions on A ${exceptionsSince([a], marks).length}` +
+        `A speaking publicly: ${speaking}; #laserPointer messages with a position received${logged ? "" : " (messages on the #laserPointer data channel, connections probe)"}: ${others.map((c, i) => `${c.name} ${positions[i]} (of ${any[i]})`).join(", ")}; exceptions on A ${exceptionsSince([a], marks).length}` +
         (positions.every(n => n === 0)
           ? ". The cursor controller sends the position only when this.isHoverTargetMainScreen is truthy, a property nothing sets (src/components/cursor-controller.js:142 reads it; line 213 sets isHoveringMainScreen), so no position is ever sent; the same on develop"
           : ""),
@@ -276,7 +310,8 @@ async function iotRoundTrip(evidence: Evidence, clients: Client[], hubId: string
       })
     )
   );
-  await Promise.all(clients.map(c => startPacketLog(c.page)));
+  const logged = (await capabilities(clients[0].page)).packetLog;
+  if (logged) await Promise.all(clients.map(c => startPacketLog(c.page)));
   const opened = await device.connect(hubId, "e2e-device");
   await device.client.page.waitForTimeout(1500);
   await evidence.screenshot(device.client, "device-connected");
@@ -317,8 +352,10 @@ async function iotRoundTrip(evidence: Evidence, clients: Client[], hubId: string
       data: lines
     };
   });
-  const logs = await Promise.all(clients.map(c => takePacketLog(c.page)));
-  clients.forEach((c, i) => evidence.saveJson(`packets-iot-${c.name}.json`, summarisePackets(logs[i]), `${c.name}'s packet log during the #iot round trip`));
+  if (logged) {
+    const logs = await Promise.all(clients.map(c => takePacketLog(c.page)));
+    clients.forEach((c, i) => evidence.saveJson(`packets-iot-${c.name}.json`, summarisePackets(logs[i]), `${c.name}'s packet log during the #iot round trip`));
+  }
   await device.client.close();
 }
 

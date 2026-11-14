@@ -9,10 +9,15 @@ import { EVIDENCE_DIR, REPOS } from "../lib/env";
 import { gitState, lanAddressProblem, sql } from "../lib/stack";
 import { activeLiveKitBlock, mediaBlock } from "../lib/livekit";
 import type { Client } from "../clients/launch";
+import { isNotApplicable } from "../probes/compat";
 import { startObsRecording, type ObsRecording } from "./obs";
 
-/** OK, NG, skipped and known limitation as plan 3.3; invalid when the frame rate floor of plan 2.2 is missed */
-export type Status = "OK" | "NG" | "skipped" | "known limitation" | "invalid";
+/**
+ * OK, NG, skipped and known limitation as plan 3.3; invalid when the frame rate floor of plan 2.2 is missed;
+ * not applicable when the check needs what this build of the client does not have (probes/compat.ts), so it
+ * says nothing either way about the build
+ */
+export type Status = "OK" | "NG" | "skipped" | "known limitation" | "invalid" | "not applicable";
 
 export type Check = { name: string; covers: string[]; status: Status; summary: string; data?: unknown; atMs: number };
 export type FileKind = "screenshot" | "video" | "obs" | "data" | "log" | "recording";
@@ -114,9 +119,10 @@ export class Evidence {
    * numbers, and its data. A failed check marks the test NG (soft assertion) but later checks still run;
    * an exception inside `fn` is recorded as NG with its message. A check that has not finished after
    * `timeoutMs` (a page that stopped answering never returns from page.evaluate) is recorded as NG too, and
-   * the test goes on. Returns what `fn` returned.
+   * the test goes on. `ok: "not applicable"`, or a NotApplicable thrown by a probe (probes/compat.ts),
+   * records the check as not applicable on this build. Returns what `fn` returned.
    */
-  async check<T extends { ok: boolean | "invalid"; summary: string; data?: unknown }>(
+  async check<T extends { ok: boolean | "invalid" | "not applicable"; summary: string; data?: unknown }>(
     name: string,
     covers: string | string[],
     fn: () => Promise<T>,
@@ -133,15 +139,26 @@ export class Evidence {
         ]);
       } catch (e) {
         const message = (e as Error).message.split("\n")[0];
+        if (isNotApplicable(e)) {
+          this.checks.push({ name, covers: items, status: "not applicable", summary: `not applicable on this build: ${message}`, atMs });
+          return;
+        }
         this.checks.push({ name, covers: items, status: "NG", summary: `error: ${message}`, atMs });
         expect.soft(message, name).toBe("no error");
         return;
       }
-      const status: Status = outcome.ok === "invalid" ? "invalid" : outcome.ok ? "OK" : "NG";
+      const status: Status =
+        outcome.ok === "invalid" ? "invalid" : outcome.ok === "not applicable" ? "not applicable" : outcome.ok ? "OK" : "NG";
       this.checks.push({ name, covers: items, status, summary: outcome.summary, data: outcome.data, atMs });
       if (status === "NG") expect.soft(outcome.summary, name).toBe("passing");
     });
     return outcome;
+  }
+
+  /** Records a check that cannot run on this build of the client, with the reason, without running it */
+  notApplicable(name: string, covers: string | string[], why: string) {
+    const items = Array.isArray(covers) ? covers : covers.split(/[,\s]+/).filter(Boolean);
+    this.checks.push({ name, covers: items, status: "not applicable", summary: `not applicable on this build: ${why}`, atMs: Date.now() - this.t0 });
   }
 
   /** Starts an OBS recording for this test (video with sound); notes why when OBS cannot be used */
@@ -192,7 +209,25 @@ export function statusOf(playwrightStatus: string | undefined, checks: Check[], 
   if (knownLimitation) return "known limitation";
   if (playwrightStatus !== "passed" || checks.some(c => c.status === "NG")) return "NG";
   if (checks.some(c => c.status === "invalid")) return "invalid";
+  // Every check that says something about the client could not run on this build (frame rate and the
+  // closing checks alone do not make the test OK)
+  const judged = checks.filter(c => !["2.2", "T6.10", "T6.8"].some(item => c.covers.includes(item)));
+  if (judged.length && judged.every(c => c.status === "not applicable")) return "not applicable";
   return "OK";
+}
+
+/**
+ * Which client API the hubs checkout has, from its source (the pages report the same at run time through
+ * probes/compat.ts): "session" from the transport refactor on (APP.sfu is an SfuSession with the data
+ * channel bus), "adapter" before it (develop); the pose store (APP.avatarPoses) from the avatar refactor on
+ */
+export function hubsClientApi(hubsDir = REPOS.hubs) {
+  const has = (file: string) => fs.existsSync(path.join(hubsDir, "src", ...file.split("/")));
+  return {
+    kind: has("sfu-adapters/sfu-session.ts") ? "session" : "adapter",
+    packetLog: has("sfu-adapters/data-channel-bus.ts"),
+    poseStore: has("avatar/pose/pose-store.ts")
+  };
 }
 
 /** run.json: the commits of the five repositories, browser versions, the media server block, the machine */
@@ -229,6 +264,7 @@ export async function writeRunInfo() {
     runId: runId(),
     startedAt: new Date().toISOString(),
     repos: Object.fromEntries(Object.entries(REPOS).map(([name, repoDir]) => [name, gitState(repoDir)])),
+    hubsClientApi: hubsClientApi(),
     browsers: { ...browsers, playwright: playwrightVersion },
     mediaServer,
     lanAddress: lanAddressProblem() ?? "matches PRIVATE_NETWORK_IP",

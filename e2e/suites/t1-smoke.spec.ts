@@ -18,6 +18,8 @@ import { MIN_FRAME_RATE, measureFrameRate, readPeers, readSession } from "../pro
 import { PILOT_HEARD, PILOT_SILENT, heardPilot, type PilotResult } from "../probes/audio";
 import { movement, readPose, tracePose } from "../probes/poses";
 import { summariseRecording } from "../probes/recording";
+import { IS_CONNECTED, capabilities, poseLabel } from "../probes/compat";
+import { noteClientApi } from "./common";
 import { SEND_WATCH, collectErrors, countByReason, reticulumIoHosts, sendsBeforeOpen } from "../probes/errors";
 import { CONSOLE_ALLOW_LIST } from "./console-allowlist";
 import { blockId, blockTitle, runsOn } from "./blocks";
@@ -58,6 +60,7 @@ async function smoke(evidence: Evidence, server: MediaServer) {
 
   const entry = await enterTogether([a, b], start.hubId);
   evidence.saveJson("entry.json", { A: entry[0], B: entry[1] }, "entry timings (ms from opening the page)");
+  await noteClientApi(evidence, a);
   await evidence.screenshot(a, "entered");
   await evidence.screenshot(b, "entered");
 
@@ -171,8 +174,10 @@ async function smoke(evidence: Evidence, server: MediaServer) {
     };
   });
 
-  await evidence.check("Recording button downloads a JSON with #avatar-pose entries", "B5", async () => {
+  await evidence.check("Recording button downloads a JSON with avatar pose entries", "B5", async () => {
     const [ida, idb] = [(await readSession(a.page)).clientId, (await readSession(b.page)).clientId];
+    // #avatar-pose; #avatar-RIG on the adapter build (develop)
+    const label = poseLabel(await capabilities(a.page));
     await input.startRecording(a.page);
     const recordingOn = (await readSession(a.page)).isRecording;
     await evidence.screenshot(a, "recording");
@@ -183,7 +188,7 @@ async function smoke(evidence: Evidence, server: MediaServer) {
     const file = evidence.file(`recording-${a.name}.json`);
     await download.saveAs(file);
     evidence.addFile(`recording-${a.name}.json`, "recording", `the recording A downloaded (${name})`);
-    const summary = summariseRecording(fs.readFileSync(file, "utf8"));
+    const summary = summariseRecording(fs.readFileSync(file, "utf8"), label);
     const recordingOff = (await readSession(a.page)).isRecording;
     const ok =
       recordingOn === true && recordingOff === false && name.startsWith(`chutvrc-recording-${start.hubId}-`) &&
@@ -192,7 +197,7 @@ async function smoke(evidence: Evidence, server: MediaServer) {
       ok,
       summary:
         `${name}: ${summary.valid ? "valid JSON" : `not JSON (${summary.error})`}, ${summary.entries} entries over ${summary.spanSeconds} s; ` +
-        `#avatar-pose ${summary.poseSent} sent, ${summary.poseReceived} received (from B: ${summary.poseReceivedBySender[idb] ?? 0}` +
+        `${label} ${summary.poseSent} sent, ${summary.poseReceived} received (from B: ${summary.poseReceivedBySender[idb] ?? 0}` +
         `, A's own packets coming back: ${summary.poseReceivedBySender[ida] ?? 0})`,
       data: { name, recordingOn, recordingOff, ownPacketsReceivedBack: summary.poseReceivedBySender[ida] ?? 0, ...summary }
     };
@@ -211,7 +216,7 @@ async function smoke(evidence: Evidence, server: MediaServer) {
       const t0 = Date.now();
       await input.clickHoverMenuButton(c.page, linkUrl, "visit room");
       await c.page.waitForFunction(id => (window as any).APP?.hub?.hub_id === id, target.hubId, { timeout: 30_000 });
-      await c.page.waitForFunction(() => !!(window as any).APP?.sfu?.isConnected, undefined, { timeout: 30_000 });
+      await c.page.waitForFunction(IS_CONNECTED, undefined, { timeout: 30_000 });
       return Date.now() - t0;
     };
     // B goes first, using the link A placed; then B must hold nothing of the room it left

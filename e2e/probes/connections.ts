@@ -216,8 +216,8 @@ export function describePairs(reading: ConnectionsReading): string[] {
  */
 export async function packetsFrom(page: Page, senderId: string): Promise<{ packets: number; at: number; tracks: number }> {
   return page.evaluate(async senderId => {
-    const stream: MediaStream | undefined = (window as any).APP?.sfu?.media?.remoteStream(senderId);
-    const ids = new Set((stream?.getAudioTracks() ?? []).map(t => t.id));
+    const tracks: MediaStreamTrack[] = (window as any).__e2eApi.remoteTracks(senderId);
+    const ids = new Set(tracks.filter(t => t.kind === "audio").map(t => t.id));
     let packets = 0;
     for (const e of ((window as any).__e2eConnections ?? []) as any[]) {
       if (e.closedAt !== null || e.pc.connectionState === "closed") continue;

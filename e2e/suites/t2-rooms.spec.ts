@@ -16,6 +16,7 @@ import { audioGap, startPilotWatch, stopPilotWatch, type PilotWatch } from "../p
 import { liveConnections } from "../probes/connections";
 import { matches, seenVideo, describeVideo } from "../probes/video";
 import { summariseRecording } from "../probes/recording";
+import { IS_CONNECTED } from "../probes/compat";
 import { blockId, blockTitle, runsOn } from "./blocks";
 import {
   closingChecks,
@@ -66,7 +67,7 @@ async function moveByLink(evidence: Evidence, a: Client, b: Client, target: Room
       const t0 = Date.now();
       await input.clickHoverMenuButton(c.page, linkUrl, "visit room");
       await c.page.waitForFunction(id => (window as any).APP?.hub?.hub_id === id, hub.hubId, { timeout: 30_000 });
-      await c.page.waitForFunction(() => !!(window as any).APP?.sfu?.isConnected, undefined, { timeout: 30_000 });
+      await c.page.waitForFunction(IS_CONNECTED, undefined, { timeout: 30_000 });
       return { ms: Date.now() - t0, at: Date.now() };
     };
     const bMove = await moveThrough(b);
@@ -156,7 +157,7 @@ async function switchServer(owner: Client, clients: Client[], to: MediaServer) {
   const reached = await Promise.all(
     clients.map(c =>
       c.page
-        .waitForFunction(id => (window as any).APP?.sfu?.sfuId === id && (window as any).APP?.sfu?.isConnected, SFU_ID[to], { timeout: 45_000 })
+        .waitForFunction(id => (window as any).__e2eApi?.sfuId() === id && (window as any).__e2eApi?.isConnected(), SFU_ID[to], { timeout: 45_000 })
         .then(() => Date.now() - clickedAt)
         .catch(() => null)
     )

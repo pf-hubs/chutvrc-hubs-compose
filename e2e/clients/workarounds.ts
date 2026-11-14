@@ -7,18 +7,13 @@ import type { Client } from "./launch";
  * Known failure: a client announces its avatar (#avatarId) once, right after entry, often before the
  * channel is open, so the others never load its model (T1, "The other's avatar is drawn"). Sending the
  * announcement again once the channels are open makes the others load it. Recorded in the evidence as
- * "workaround applied".
+ * "workaround applied". Sent through the capability layer, so it works on the adapter build as well.
  */
 export async function reannounceAvatars(clients: Client[], evidence: Evidence, why: string) {
   const sent: string[] = [];
   for (const c of clients) {
     const ok = await c.page
-      .evaluate(() => {
-        const sync = (window as any).APP?.sfu?.avatarSync;
-        if (!sync) return false;
-        sync.sendSelfAvatarSrc();
-        return true;
-      })
+      .evaluate(() => !!(window as any).__e2eApi?.announceAvatar())
       .catch(() => false);
     if (ok) sent.push(c.name);
   }

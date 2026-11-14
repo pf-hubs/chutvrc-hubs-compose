@@ -1,6 +1,7 @@
 // Entering a room through the real entry UI (plan 2.3, selectors from TRIALS.md "Entering a room").
 import type { Page } from "@playwright/test";
 import type { Client } from "./launch";
+import { IS_CONNECTED } from "../probes/compat";
 
 export type EntryTimings = { load: number; joinVisible: number; profile: number; mic: number; entered: number; mediaServer: number };
 
@@ -69,7 +70,7 @@ export async function waitEntered(page: Page, timeout = 60_000) {
 }
 
 export async function waitMediaServer(page: Page, timeout = 60_000) {
-  await page.waitForFunction(() => !!(window as any).APP?.sfu?.isConnected, undefined, { timeout });
+  await page.waitForFunction(IS_CONNECTED, undefined, { timeout });
 }
 
 /** Closes the "Welcome to ..." tour if it is shown; it covers the lower middle of the window */

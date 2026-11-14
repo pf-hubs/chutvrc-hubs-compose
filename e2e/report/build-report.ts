@@ -1,6 +1,7 @@
 // Builds evidence/<run-id>/report.html from run.json and every <test-id>/result.json of the run:
-// each test with its status (OK, NG, skipped, known limitation, invalid), the checklist items it covers,
-// its checks with their numbers, screenshot thumbnails, and links to videos, logs and data.
+// each test with its status (OK, NG, skipped, known limitation, invalid, not applicable), the checklist
+// items it covers, its checks with their numbers, screenshot thumbnails, and links to videos, logs and data.
+// The header names the hubs branch and commit the run tested and which client API that build has.
 // One HTML file with its styles inline; the evidence it links to sits next to it in the run folder.
 // The reporter (report/reporter.ts) calls it after every run; by hand:
 //   npx tsx report/build-report.ts [run-id]      # the newest run when no id is given
@@ -69,7 +70,7 @@ const REAL_DEVICE_ONLY = [
   "Real microphones (echo cancellation, noise suppression on real speech) and real networks"
 ];
 
-const STATUS_ORDER: Status[] = ["NG", "invalid", "known limitation", "OK", "skipped"];
+const STATUS_ORDER: Status[] = ["NG", "invalid", "known limitation", "OK", "not applicable", "skipped"];
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -85,6 +86,20 @@ function readJson<T>(file: string): T | null {
   } catch {
     return null;
   }
+}
+
+/** The client build the run tested: hubs branch, commit, and its API (report/evidence.ts hubsClientApi) */
+function buildLine(run: any): string {
+  const hubs = run?.repos?.hubs;
+  if (!hubs) return "";
+  if (hubs.error) return `<div class="build">hubs: <span class="muted">${esc(hubs.error)}</span></div>`;
+  const api = run.hubsClientApi;
+  const apiText = api
+    ? api.kind === "session"
+      ? `client API: APP.sfu is a session (data channel bus${api.poseStore ? ", pose store APP.avatarPoses" : ", no pose store"})`
+      : "client API: APP.sfu is the media server adapter (no data channel bus, no pose store); checks that need them are not applicable"
+    : "";
+  return `<div class="build">hubs <b>${esc(hubs.branch)}</b> <code>${esc(hubs.commit?.slice(0, 10))}</code>${hubs.dirty ? ' <span class="chip warn">uncommitted changes</span>' : ""}${apiText ? ` · <span class="muted">${esc(apiText)}</span>` : ""}</div>`;
 }
 
 function runInfoSection(run: any): string {
@@ -204,11 +219,13 @@ const STYLE = `
 :root { color-scheme: light dark;
   --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dde1e8; --code: #eef0f4;
   --ok: #1e7f4f; --ok-bg: #e3f4ea; --ng: #b42335; --ng-bg: #fbe5e8; --skip: #5d6677; --skip-bg: #eceef2;
-  --known: #8a5a00; --known-bg: #fbefd5; --invalid: #6b3fa0; --invalid-bg: #efe6f8; --link: #2457c5; }
+  --known: #8a5a00; --known-bg: #fbefd5; --invalid: #6b3fa0; --invalid-bg: #efe6f8; --link: #2457c5;
+  --na: #3d6670; --na-bg: #e4eff1; }
 @media (prefers-color-scheme: dark) { :root {
   --bg: #12151b; --card: #1b2029; --text: #e3e7ee; --muted: #9aa3b2; --line: #2d3442; --code: #252c38;
   --ok: #5fd39a; --ok-bg: #173527; --ng: #ff8593; --ng-bg: #3d1a21; --skip: #a3abb8; --skip-bg: #262c36;
-  --known: #f2c062; --known-bg: #3a2d12; --invalid: #c9a3f2; --invalid-bg: #2e2340; --link: #8ab4ff; } }
+  --known: #f2c062; --known-bg: #3a2d12; --invalid: #c9a3f2; --invalid-bg: #2e2340; --link: #8ab4ff;
+  --na: #8fc3cf; --na-bg: #1c2f34; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
@@ -221,12 +238,15 @@ code { padding: 1px 4px; } pre { padding: 8px; overflow: auto; font-size: 12px; 
 .badge.st-ok { color: var(--ok); background: var(--ok-bg); } .badge.st-ng { color: var(--ng); background: var(--ng-bg); }
 .badge.st-skipped { color: var(--skip); background: var(--skip-bg); } .badge.st-known-limitation { color: var(--known); background: var(--known-bg); }
 .badge.st-invalid { color: var(--invalid); background: var(--invalid-bg); }
+.badge.st-not-applicable { color: var(--na); background: var(--na-bg); border: 1px dashed var(--na); }
 .summary .badge { font-size: 13px; padding: 4px 12px; }
 .chip { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
 .chip.warn { border-color: var(--known); color: var(--known); }
 .test, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .test { border-left-width: 4px; } .test.st-ok { border-left-color: var(--ok); } .test.st-ng { border-left-color: var(--ng); }
 .test.st-skipped { border-left-color: var(--skip); } .test.st-known-limitation { border-left-color: var(--known); } .test.st-invalid { border-left-color: var(--invalid); }
+.test.st-not-applicable { border-left-color: var(--na); border-left-style: dashed; }
+.build { margin: 6px 0 0; font-size: 15px; }
 .test header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 8px; background: none; padding: 0; color: inherit; }
 .test header .covers { margin-left: auto; }
 table { border-collapse: collapse; width: 100%; } caption { text-align: left; font-weight: 600; padding: 4px 0; }
@@ -259,6 +279,7 @@ export function buildReport(dir: string): string {
 <title>Client test report</title><style>${STYLE}</style></head>
 <body><main>
   <h1>chutvrc simulated-client tests</h1>
+  ${buildLine(run)}
   <div class="muted">Run <code>${esc(runId)}</code>${run?.startedAt ? ` · started ${esc(run.startedAt.slice(0, 19).replace("T", " "))} UTC` : ""} · ${tests.length} test${tests.length === 1 ? "" : "s"}</div>
   <div class="summary">${counts.map(([s, n]) => `<span class="badge ${statusClass(s)}">${n} ${esc(s)}</span>`).join("")}</div>
   <h2>Run</h2><div class="panel">${runInfoSection(run)}</div>

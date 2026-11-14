@@ -63,7 +63,7 @@ export async function faceTowards(page: Page, target: FaceTarget, snapDegrees = 
         const THREE = (window as any).AFRAME.THREE;
         let point: { x: number; z: number } | null = null;
         if ("clientId" in target) {
-          point = (window as any).APP.avatarPoses.get(target.clientId)?.rig.pos ?? null;
+          point = (window as any).__e2eApi.pose(target.clientId)?.rig.pos ?? null;
         } else if ("selector" in target) {
           const el = document.querySelector(target.selector) as any;
           point = el ? new THREE.Vector3().setFromMatrixPosition(el.object3D.matrixWorld) : null;

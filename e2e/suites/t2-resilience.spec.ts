@@ -11,7 +11,7 @@ import * as input from "../clients/input";
 import { linkStatistics, shapeLink } from "../clients/network";
 import { reannounceAvatars } from "../clients/workarounds";
 import { CONTROL_HZ } from "../assets/media";
-import { readPeers, readSession } from "../probes/session";
+import { drawsAvatar, readPeers, readSession } from "../probes/session";
 import { audioGap, heardPilot, startPilotWatch, stopPilotWatch } from "../probes/audio";
 import { readPose } from "../probes/poses";
 import { liveConnections, readConnections } from "../probes/connections";
@@ -205,18 +205,6 @@ for (const server of SERVERS) {
 }
 
 // ---------- T2.10 ----------
-
-/** Whether `page` draws `clientId`'s avatar: a model entity whose object is visible */
-function drawsAvatar(page: import("@playwright/test").Page, clientId: string) {
-  return page.evaluate(clientId => {
-    const APP = (window as any).APP;
-    const eid = APP.sfu?.avatarSync?.models?.avatarEidByClientId?.get(clientId);
-    if (eid === undefined) return { model: false, visible: false };
-    let visible = true;
-    for (let o = APP.world.eid2obj.get(eid); o; o = o.parent) if (!o.visible) visible = false;
-    return { model: true, visible };
-  }, clientId);
-}
 
 for (const server of SERVERS) {
   test(

@@ -1,5 +1,6 @@
 // Pose probe (plan 3.2, the part T1 needs): an avatar's pose as one client holds it, from
-// APP.avatarPoses (the own pose under the own client id, remote poses as received and interpolated).
+// APP.avatarPoses (the own pose under the own client id, remote poses as received and interpolated), or on
+// the adapter build from the last received #avatar-RIG and #avatar-HEAD transforms (probes/compat.ts).
 import type { Page } from "@playwright/test";
 
 export type PoseSample = {
@@ -12,15 +13,23 @@ export type PoseSample = {
   /** The head's pitch and yaw in the rig's space, radians */
   headPitch: number;
   headYaw: number;
+  /**
+   * The sender's sequence number; on the adapter build, which has none, the number of pose packets this
+   * page was seen to receive (each arrives as a new transform object), so it still advances while poses arrive
+   */
   seq: number;
-  tracked: number;
-  isVR: boolean;
+  /** Tracked parts (bits); null on the adapter build */
+  tracked: number | null;
+  isVR: boolean | null;
+  animState: number | null;
+  /** "pose store" (APP.avatarPoses) or "per-part transforms" (the adapter build) */
+  source: string;
 };
 
 /** `clientId`'s pose as `page` holds it; null when it has none */
 export function readPose(page: Page, clientId: string): Promise<PoseSample | null> {
   return page.evaluate(clientId => {
-    const pose = (window as any).APP?.avatarPoses?.get(clientId);
+    const pose = (window as any).__e2eApi?.pose(clientId);
     if (!pose) return null;
     const v = (p: any): [number, number, number] => [p.x, p.y, p.z].map((n: number) => +n.toFixed(4)) as [number, number, number];
     return {
@@ -32,7 +41,9 @@ export function readPose(page: Page, clientId: string): Promise<PoseSample | nul
       headYaw: +pose.head.rot.y.toFixed(4),
       seq: pose.seq,
       tracked: pose.tracked,
-      isVR: pose.isVR
+      isVR: pose.isVR,
+      animState: pose.animState,
+      source: pose.source
     };
   }, clientId);
 }

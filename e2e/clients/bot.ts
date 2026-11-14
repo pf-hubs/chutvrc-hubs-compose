@@ -11,6 +11,7 @@ import { BASE_URL, COMPOSE_ROOT } from "../lib/env";
 import { MEDIA_SLOTS, clipPath, type SlotName } from "../assets/media";
 import type { Evidence } from "../report/evidence";
 import { CONNECTION_WATCH } from "../probes/connections";
+import { COMPAT_SHIM } from "../probes/compat";
 import { formatLog, settle, watch, type Client } from "./launch";
 
 export const BOT_RECORDING = path.join(COMPOSE_ROOT, "services", "hubs", "scripts", "bot", "bot-recording.json");
@@ -40,6 +41,7 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, locale: "en-US", viewport: { width: 640, height: 360 }, permissions: ["microphone", "camera"] });
   await context.addInitScript({ content: "globalThis.__name = globalThis.__name || (f => f);" });
   await context.addInitScript({ content: CONNECTION_WATCH });
+  await context.addInitScript({ content: COMPAT_SHIM });
   const page = await context.newPage();
   const { log, hosts } = watch(context, page);
   // Only the start of the response is awaited: with several clients loading the development build at once the
@@ -82,7 +84,7 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
 /** Waits until a bot has entered (the bot path adds the "entered" state itself) and joined the media server */
 export async function waitBotEntered(bot: Client, timeout = 120_000) {
   await bot.page.waitForFunction(
-    () => (window as any).AFRAME?.scenes?.[0]?.is("entered") && (window as any).APP?.sfu?.isConnected,
+    () => (window as any).AFRAME?.scenes?.[0]?.is("entered") && (window as any).__e2eApi?.isConnected(),
     undefined,
     { timeout }
   );
