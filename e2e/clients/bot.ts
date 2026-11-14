@@ -12,7 +12,7 @@ import { MEDIA_SLOTS, clipPath, type SlotName } from "../assets/media";
 import type { Evidence } from "../report/evidence";
 import { CONNECTION_WATCH } from "../probes/connections";
 import { COMPAT_SHIM } from "../probes/compat";
-import { formatLog, settle, watch, type Client } from "./launch";
+import { saveRecords, settle, watch, type Client } from "./launch";
 
 export const BOT_RECORDING = path.join(COMPOSE_ROOT, "services", "hubs", "scripts", "bot", "bot-recording.json");
 
@@ -43,7 +43,7 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
   await context.addInitScript({ content: CONNECTION_WATCH });
   await context.addInitScript({ content: COMPAT_SHIM });
   const page = await context.newPage();
-  const { log, hosts } = watch(context, page);
+  const { log, hosts, hostCounts } = watch(context, page);
   // Only the start of the response is awaited: with several clients loading the development build at once the
   // whole document can take longer than the navigation limit, and the bot's file inputs are awaited below
   const url = `${BASE_URL}/${opts.hubId}?bot=true&allow_multi=true`;
@@ -71,11 +71,12 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
     page,
     log,
     hosts,
+    hostCounts,
     async close() {
       if (closed) return;
       closed = true;
       await settle(browser.close());
-      opts.evidence?.saveText(`${name}.console.log`, formatLog(log), "console log");
+      if (opts.evidence) saveRecords(opts.evidence, name, log, hostCounts);
     }
   };
   opts.evidence?.register(client);

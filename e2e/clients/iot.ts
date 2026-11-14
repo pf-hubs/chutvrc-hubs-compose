@@ -8,7 +8,7 @@ import path from "node:path";
 import { chromium } from "@playwright/test";
 import { BASE_URL, COMPOSE_ROOT, HOST } from "../lib/env";
 import type { Evidence } from "../report/evidence";
-import { formatLog, settle, watch, type Client } from "./launch";
+import { saveRecords, settle, watch, type Client } from "./launch";
 
 export const DEVICE_SIMULATOR = path.join(COMPOSE_ROOT, "services", "hubs", "docs", "device-simulator.html");
 /** Any page of reticulum's origin; its JSON is replaced by the simulator */
@@ -31,7 +31,7 @@ export async function launchDeviceSimulator(evidence: Evidence, position: [numbe
   const context = await browser.newContext({ ignoreHTTPSErrors: true, bypassCSP: true, locale: "en-US", viewport: { width: 620, height: 600 } });
   const page = await context.newPage();
   const html = fs.readFileSync(DEVICE_SIMULATOR, "utf8");
-  const { log, hosts } = watch(context, page);
+  const { log, hosts, hostCounts } = watch(context, page);
   // A page on the room's origin whose document is replaced by the simulator (a page answered by
   // page.route() cannot open WebSockets in this browser: they never connect)
   await page.goto(PAGE_URL, { waitUntil: "load" });
@@ -56,11 +56,12 @@ export async function launchDeviceSimulator(evidence: Evidence, position: [numbe
     page,
     log,
     hosts,
+    hostCounts,
     async close() {
       if (closed) return;
       closed = true;
       await settle(browser.close());
-      evidence.saveText("IOT.console.log", formatLog(log), "console log of the device simulator");
+      saveRecords(evidence, "IOT", log, hostCounts);
     }
   };
   evidence.register(client);

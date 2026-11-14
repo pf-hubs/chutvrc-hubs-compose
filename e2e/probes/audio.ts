@@ -193,3 +193,61 @@ export function audioGap(watch: PilotWatch, fromMs = 0, toMs = watch.durationMs)
     detections: inside.length
   };
 }
+
+export type InboundAudio = {
+  /** The sender's audio track ids this page holds, and the RTP receivers found for them */
+  tracks: string[];
+  receivers: number;
+  /** Packets that arrived while the probe watched */
+  packets: number;
+  /** Mean level of what arrived over the window, in dBFS (from totalAudioEnergy and totalSamplesDuration); null without samples */
+  meanDbfs: number | null;
+  error?: string;
+};
+
+/**
+ * Audio from a sender as the receiving browser's WebRTC statistics show it: the inbound RTP of the
+ * sender's track(s), packets and level over `ms`. For receivers whose Web Audio cannot read a remote WebRTC
+ * track (Linux WebKit, the IOS profile: the analyser stays silent), this is how "hears" is measured there:
+ * the audio arrives and has a level, not the pilot frequency itself.
+ */
+export function inboundAudio(page: Page, senderId: string, ms = 3000): Promise<InboundAudio> {
+  return page.evaluate(
+    async ({ senderId, ms }) => {
+      const APP = (window as any).APP;
+      const stream: MediaStream | null = await Promise.race([
+        APP.sfu.getMediaStream(senderId, "audio").catch(() => null),
+        new Promise<null>(r => setTimeout(() => r(null), 10_000))
+      ]);
+      const tracks = stream?.getAudioTracks().map(t => t.id) ?? [];
+      if (!tracks.length) return { tracks, receivers: 0, packets: 0, meanDbfs: null, error: "no audio track for the sender" };
+      const pcs: RTCPeerConnection[] = ((window as any).__e2eConnections ?? []).map((e: any) => e.pc).filter((pc: RTCPeerConnection) => pc.connectionState !== "closed");
+      const read = async () => {
+        let packets = 0;
+        let energy = 0;
+        let duration = 0;
+        let receivers = 0;
+        for (const pc of pcs) {
+          (await pc.getStats()).forEach((s: any) => {
+            if (s.type !== "inbound-rtp" || s.kind !== "audio" || !tracks.includes(s.trackIdentifier)) return;
+            receivers++;
+            packets += s.packetsReceived ?? 0;
+            energy += s.totalAudioEnergy ?? 0;
+            duration += s.totalSamplesDuration ?? 0;
+          });
+        }
+        return { packets, energy, duration, receivers };
+      };
+      const a = await read();
+      await new Promise(r => setTimeout(r, ms));
+      const b = await read();
+      const seconds = b.duration - a.duration;
+      const meanDbfs = seconds > 0 ? 10 * Math.log10(Math.max(1e-12, (b.energy - a.energy) / seconds)) : null;
+      return { tracks, receivers: b.receivers, packets: b.packets - a.packets, meanDbfs: meanDbfs === null ? null : +meanDbfs.toFixed(1) };
+    },
+    { senderId, ms }
+  );
+}
+
+/** Arriving audio counts as heard at this mean level or more (silence and comfort noise sit far below; the clips arrive at about -50 dBFS) */
+export const INBOUND_HEARD_DBFS = -70;
