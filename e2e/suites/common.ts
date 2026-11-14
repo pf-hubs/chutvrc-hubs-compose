@@ -3,13 +3,15 @@
 import type { Evidence } from "../report/evidence";
 import { room, SFU_ID, type AccountName, type MediaServer, type RoomName } from "../lib/fixtures";
 import { launchClients, type Client, type LaunchOptions } from "../clients/launch";
-import { ensureSignedIn } from "../clients/signin";
+import { ensureSignedIn, forgetTestAvatar } from "../clients/signin";
+import { ASSETS_URL } from "../lib/env";
 import { enterRoom, type EnterOptions } from "../clients/enter";
 import { CONTROL_HZ, type SlotName } from "../assets/media";
 import { MIN_FRAME_RATE, measureFrameRate, readSession, type Session } from "../probes/session";
 import { PILOT_HEARD, PILOT_SILENT, heardPilot, type PilotResult } from "../probes/audio";
 import { SEND_WATCH, collectErrors, countByReason, reticulumIoHosts, type AllowEntry } from "../probes/errors";
 import { capabilities } from "../probes/compat";
+import { readConnections } from "../probes/connections";
 import { CONSOLE_ALLOW_LIST } from "./console-allowlist";
 
 export const heard = (r: PilotResult) => r.ratio >= PILOT_HEARD && r.controlRatio <= PILOT_SILENT;
@@ -51,6 +53,10 @@ export async function startClients(evidence: Evidence, seats: Seat[]): Promise<C
     }))
   );
   await Promise.all(clients.map((c, i) => (seats[i].account ? ensureSignedIn(c, seats[i].account!) : Promise.resolve())));
+  // A sample avatar a test chose stays in the signed-in profile; each test starts from the default avatar
+  const forgotten = await Promise.all(clients.map(c => forgetTestAvatar(c, ASSETS_URL).catch(() => null)));
+  const notes = clients.map((c, i) => (forgotten[i] ? `${c.name} ${forgotten[i]!.split("/").pop()}` : "")).filter(Boolean);
+  if (notes.length) evidence.note(`avatar left in the profile by an earlier test removed (the client's default is used): ${notes.join(", ")}`);
   return clients;
 }
 
@@ -130,7 +136,8 @@ export async function waitUntil<T>(fn: () => Promise<T>, timeoutMs: number, ever
 
 /** Plan 2.2: every visible client measures its frame rate; below the floor the test is invalid, not failed */
 export async function frameRateCheck(evidence: Evidence, clients: Client[]) {
-  const visible = clients.filter(c => c.profile === "DESK" && !c.modifiers.includes("poor-network"));
+  // DESK and QUEST (plan 2.2), and OLD, which is DESK on the previous build
+  const visible = clients.filter(c => ["DESK", "QUEST", "OLD", "OLD_QUEST"].includes(c.profile) && !c.modifiers.includes("poor-network"));
   return evidence.check("Frame rate of the clients", "2.2", async () => {
     const rates = await Promise.all(visible.map(c => measureFrameRate(c.page)));
     const low = Math.min(...rates.map(r => r.raf));
@@ -155,8 +162,26 @@ export async function connectedCheck(evidence: Evidence, clients: Client[], serv
   });
 }
 
+/**
+ * Every client's connections at the end of a test, with the state of each data channel; a channel still
+ * "connecting" long after entry is named in a note (seen on Dialog: a session whose data channels never open)
+ */
+export async function connectionsAtEnd(evidence: Evidence, clients: Client[]) {
+  const within = <T,>(p: Promise<T>) => Promise.race([p, new Promise<null>(r => setTimeout(() => r(null), 10_000))]).catch(() => null);
+  const readings = await Promise.all(clients.map(c => within(readConnections(c.page))));
+  const rows = clients.map((c, i) => ({
+    client: c.name,
+    connections: (readings[i]?.connections ?? []).map(x => ({ id: x.id, state: x.connectionState, closed: x.closedAtS !== null, dataChannels: x.dataChannels.map(d => `${d.label} ${d.state} sent ${d.messagesSent} received ${d.messagesReceived}`) }))
+  }));
+  evidence.saveJson("connections-at-end.json", rows, "every client's connections and data channels at the end of the test");
+  const stuck = rows.flatMap(r => r.connections.filter(x => !x.closed).flatMap(x => x.dataChannels.filter(d => / connecting /.test(d)).map(d => `${r.client} connection ${x.id} (${x.state}): ${d.split(" sent")[0]}`)));
+  if (stuck.length) evidence.note(`data channels still connecting at the end: ${stuck.join("; ")}`);
+  return stuck;
+}
+
 /** T6.10 and T6.8, at the end of every test: console errors against the allow-list, and no reticulum.io request */
 export async function closingChecks(evidence: Evidence, clients: Client[], extraAllow: AllowEntry[] = []) {
+  await connectionsAtEnd(evidence, clients.filter(c => c.profile !== "BOT")).catch(() => []);
   await evidence.check("No console errors outside the allow-list", "T6.10", async () => {
     const { unexpected, allowed } = collectErrors(clients, [...extraAllow, ...CONSOLE_ALLOW_LIST]);
     // Distinct messages with their counts; a reconnect loop can log thousands of the same error

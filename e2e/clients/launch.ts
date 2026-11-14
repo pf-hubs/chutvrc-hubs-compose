@@ -113,10 +113,21 @@ const COMMON_ARGS = [
  *   would otherwise carry into a page that does not define it;
  * - the development build's error overlay is hidden: it covers the page on any uncaught error and takes
  *   every click (the errors are still collected);
- * - window.__e2eApi, the capability layer the probes read the client through (probes/compat.ts).
+ * - window.__e2eApi, the capability layer the probes read the client through (probes/compat.ts);
+ * - unhandled promise rejections are logged with their reason ([e2e] unhandled rejection).
  */
 const COMMON_INIT = `
 globalThis.__name = globalThis.__name || (f => f);
+// A rejected promise nobody handles is reported as "Uncaught (in promise) #<Object>" for a plain object; this names its content
+window.addEventListener("unhandledrejection", e => {
+  let reason;
+  try {
+    reason = e.reason instanceof Error ? e.reason.message : JSON.stringify(e.reason);
+  } catch (err) {
+    reason = String(e.reason);
+  }
+  console.warn("[e2e] unhandled rejection: " + String(reason).slice(0, 300));
+});
 document.addEventListener("DOMContentLoaded", () => {
   const style = document.createElement("style");
   style.textContent = "#webpack-dev-server-client-overlay { display: none !important; }";

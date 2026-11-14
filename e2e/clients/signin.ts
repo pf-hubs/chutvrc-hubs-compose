@@ -95,3 +95,21 @@ export async function tokenOf(client: Client): Promise<string> {
   if (!token) throw new Error(`${client.name} is not signed in`);
   return token;
 }
+
+/**
+ * Removes an avatar URL from the assets service that an earlier test put into this profile's avatarId,
+ * so each test starts with the client's default avatar unless it chooses one: the stored profile then has
+ * no avatarId, and the client gives it its default when the room page loads. Needs the page on the
+ * client's origin (ensureSignedIn leaves it on the home page); returns the avatar it removed, if any.
+ */
+export async function forgetTestAvatar(client: Client, assetsUrl: string): Promise<string | null> {
+  if (!client.page.url().startsWith(BASE_URL)) return null;
+  return client.page.evaluate(assetsUrl => {
+    const state = JSON.parse(localStorage.getItem("___hubs_store") || "{}");
+    const avatarId = state.profile?.avatarId;
+    if (typeof avatarId !== "string" || !avatarId.startsWith(assetsUrl)) return null;
+    delete state.profile.avatarId;
+    localStorage.setItem("___hubs_store", JSON.stringify(state));
+    return avatarId;
+  }, assetsUrl);
+}
