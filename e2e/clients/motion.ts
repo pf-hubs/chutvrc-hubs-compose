@@ -1,10 +1,16 @@
 // The QUEST profile's emulated devices (plan 2.1, 2.4): IWER installed before the page's own scripts, and a
 // pose timeline player that moves the emulated headset and controllers once a frame.
 //
-// This is the part tests T3.5, T4.3 and T4.8 need: a timeline of keyframes, each giving the headset's and
-// each controller's position and quaternion (in the XR reference space, metres) and the controllers'
-// connected flag; the player blends between keyframes (positions linearly, rotations along the shortest
-// arc) and holds the last one. The M1 to M10 battery and the converted recordings come with step 7.
+// A timeline of keyframes gives the headset's and each controller's position and quaternion (in the XR
+// reference space, metres), the controllers' connected flag, thumbstick and button values; the player blends
+// poses between keyframes (positions linearly, rotations along the shortest arc), steps the flags, sticks
+// and buttons at the keyframe that sets them, and holds the last keyframe. T3.5, T4.3 and T4.8 use the small
+// timelines below; the M1 to M10 battery and the converted recordings are in motions/ (T5).
+//
+// The poses are the emulated devices' own. What the client sends differs by fixed offsets (TRIALS.md, step
+// 7): its head pose is the left eye's (the viewer pose moved 3.15 cm along the headset's x), its controller
+// pose is the target ray moved by the Quest Touch offset of webxr-controller.js. `deviceFromClient` turns a
+// pose the client should send into the device pose that makes it send that.
 //
 // Two things the emulation needs on this PC (TRIALS.md, trial b):
 // - installRuntime({ forceInstall: true }): Edge has its own navigator.xr, and IWER otherwise only warns.
@@ -25,7 +31,11 @@ export const QUEST3_USER_AGENT =
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number];
 export type DevicePose = { pos: Vec3; quat: Quat };
-export type ControllerPose = DevicePose & { connected?: boolean };
+/**
+ * `stick` is the thumbstick's [x, y] (-1 to 1; y -1 is forward), `buttons` IWER button ids with their
+ * values (e.g. { trigger: 1 }); both are applied when the keyframe that gives them is reached
+ */
+export type ControllerPose = DevicePose & { connected?: boolean; stick?: [number, number]; buttons?: Record<string, number> };
 
 /** One keyframe: `t` in milliseconds from the start; a part left out is blended from the keyframes that have it */
 export type Keyframe = { t: number; head?: DevicePose; left?: ControllerPose; right?: ControllerPose };
@@ -103,17 +113,20 @@ const PLAYER = `
     }
     if (!before && !after) return null;
     if (!before) return after[part];
-    if (!after) return before[part];
+    if (!after || after.t === before.t) return before[part];
     const f = (t - before.t) / (after.t - before.t);
     const a = before[part], b = after[part];
     return {
       pos: a.pos.map((v, i) => lerp(v, b.pos[i], f)),
       quat: slerp(a.quat, b.quat, f),
-      // The connected flag steps: it changes at the keyframe that changes it
-      connected: a.connected
+      // The connected flag, the thumbstick and the buttons step: they change at the keyframe that changes them
+      connected: a.connected,
+      stick: a.stick,
+      buttons: a.buttons
     };
   };
   let timeline = null, startedAt = 0, duration = 0, applied = [], resolveEnd = null, playing = false;
+  let sticks = { left: [0, 0], right: [0, 0] };
   const read = obj => ({ pos: [obj.position.x, obj.position.y, obj.position.z], quat: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w] });
   const set = (obj, pose) => {
     obj.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
@@ -129,10 +142,25 @@ const PLAYER = `
       const controller = device.controllers[side];
       set(controller, pose);
       if (pose.connected !== undefined && controller.connected !== pose.connected) controller.connected = pose.connected;
+      const stick = pose.stick || [0, 0];
+      const lastStick = sticks[side];
+      if (stick[0] !== lastStick[0] || stick[1] !== lastStick[1]) {
+        controller.updateAxes("thumbstick", stick[0], stick[1]);
+        sticks[side] = stick;
+      }
+      if (pose.buttons) for (const [id, value] of Object.entries(pose.buttons)) controller.updateButtonValue(id, value);
     }
     const entry = { t: performance.timeOrigin + performance.now(), head: read(device) };
     for (const side of ["left", "right"]) entry[side] = { ...read(device.controllers[side]), connected: device.controllers[side].connected };
     applied.push(entry);
+  };
+  /** Thumbsticks back to the middle once a timeline ends or stops, as a released stick springs back */
+  const releaseSticks = () => {
+    const device = window.xrDevice;
+    for (const side of ["left", "right"]) {
+      if (sticks[side][0] || sticks[side][1]) device.controllers[side].updateAxes("thumbstick", 0, 0);
+    }
+    sticks = { left: [0, 0], right: [0, 0] };
   };
   const frame = () => {
     if (!playing) return;
@@ -140,6 +168,7 @@ const PLAYER = `
     apply(Math.min(t, duration));
     if (t >= duration) {
       playing = false;
+      releaseSticks();
       if (resolveEnd) resolveEnd(applied.length);
       return;
     }
@@ -154,7 +183,7 @@ const PLAYER = `
       playing = true;
       return new Promise(resolve => { resolveEnd = resolve; raf(frame); });
     },
-    stop() { playing = false; if (resolveEnd) resolveEnd(applied.length); },
+    stop() { playing = false; releaseSticks(); if (resolveEnd) resolveEnd(applied.length); },
     get playing() { return playing; },
     takeApplied() { const a = applied; applied = []; return a; },
     pose() {
@@ -195,6 +224,39 @@ export function yawPitchRoll(yawDeg: number, pitchDeg = 0, rollDeg = 0): Quat {
   const [c1, c2, c3] = [Math.cos(x / 2), Math.cos(y / 2), Math.cos(z / 2)];
   const [s1, s2, s3] = [Math.sin(x / 2), Math.sin(y / 2), Math.sin(z / 2)];
   return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
+}
+
+/**
+ * What the client sends against what the devices report (TRIALS.md, step 7), in the device's own frame:
+ * the head pose is the left eye's, the controller pose the target ray moved by webxr-controller.js's
+ * LEFT_HAND_OFFSET and RIGHT_HAND_OFFSET (offsets for the Quest Touch controllers)
+ */
+export const CLIENT_OFFSETS: Record<"head" | "left" | "right", Vec3> = {
+  head: [-0.0315, 0, 0],
+  left: [-0.025, -0.03, 0.12],
+  right: [0.025, -0.03, 0.12]
+};
+
+/** Turns a vector by a unit quaternion */
+export function rotate(q: Quat, v: Vec3): Vec3 {
+  const [x, y, z, w] = q;
+  const [vx, vy, vz] = v;
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
+}
+
+/** The device pose that makes the client send `pose` for that part (the inverse of CLIENT_OFFSETS) */
+export function deviceFromClient<P extends DevicePose>(part: "head" | "left" | "right", pose: P): P {
+  const offset = rotate(pose.quat, CLIENT_OFFSETS[part]);
+  return { ...pose, pos: [pose.pos[0] - offset[0], pose.pos[1] - offset[1], pose.pos[2] - offset[2]] };
+}
+
+/** What the client sends for a device pose of that part */
+export function clientFromDevice<P extends DevicePose>(part: "head" | "left" | "right", pose: P): P {
+  const offset = rotate(pose.quat, CLIENT_OFFSETS[part]);
+  return { ...pose, pos: [pose.pos[0] + offset[0], pose.pos[1] + offset[1], pose.pos[2] + offset[2]] };
 }
 
 /** Standing still, looking ahead, controllers held in front at waist height */

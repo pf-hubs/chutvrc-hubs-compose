@@ -18,6 +18,11 @@ export type EnterOptions = {
   displayName: string;
   /** A full avatar URL put into the profile's avatarId before entering, as a user does with a custom avatar URL */
   avatarUrl?: string;
+  /**
+   * Preferences put into the store before Join Room, as a user sets them in Preferences beforehand (a signed-in
+   * profile keeps them between runs, so a test that depends on one sets it here)
+   */
+  preferences?: Record<string, unknown>;
   /** Extra query string, e.g. "?force_tcp" */
   query?: string;
   timeout?: number;
@@ -36,14 +41,13 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
 
   await page.goto(client.roomUrl(hubId, opts.query), { waitUntil: "domcontentloaded", timeout: 120_000 });
   const load = since();
-  if (opts.avatarUrl) {
-    await page.waitForFunction(() => (window as any).APP?.store, undefined, { timeout });
-    await page.evaluate(url => (window as any).APP.store.update({ profile: { avatarId: url } }), opts.avatarUrl);
-  }
-
   const join = page.getByRole("button", { name: "Join Room" });
   await join.waitFor({ state: "visible", timeout });
   const joinVisible = since();
+  // Only once the lobby shows: a profile change is sent on the room's channel (HubChannel.sendProfileUpdate),
+  // which throws while the channel does not exist yet
+  if (opts.avatarUrl) await page.evaluate(url => (window as any).APP.store.update({ profile: { avatarId: url } }), opts.avatarUrl);
+  if (opts.preferences) await page.evaluate(preferences => (window as any).APP.store.update({ preferences }), opts.preferences);
   await join.click();
 
   // Either the name and avatar step or the microphone step comes next

@@ -148,6 +148,8 @@ export type LaunchOptions = {
   cam?: SlotName | false;
   /** Where video and console log go; the evidence also closes the client when the test ends */
   evidence?: Evidence;
+  /** Playwright's video of the window (on by default when there is evidence); off where a test records the page itself (T5's observers) */
+  recordVideo?: boolean;
   /** Window position on the desktop */
   position?: [number, number];
   /** One pass of plan 2.1 runs DESK on Playwright's Chromium instead of Edge */
@@ -213,7 +215,7 @@ export async function launchClient(opts: LaunchOptions): Promise<Client> {
   if (cam !== false) media.push(`--use-file-for-fake-video-capture=${requireFile(clipPath(cam, "y4m"))}`);
   const position = opts.position ? [`--window-position=${opts.position[0]},${opts.position[1]}`] : [];
 
-  const videoDir = opts.evidence ? opts.evidence.file(`.video-${name}`) : undefined;
+  const videoDir = opts.evidence && opts.recordVideo !== false ? opts.evidence.file(`.video-${name}`) : undefined;
   const context = await chromium.launchPersistentContext(profileDir, {
     channel: (opts.browser ?? spec.channel) === "chromium" ? undefined : spec.channel,
     headless: opts.headless ?? spec.headless,
