@@ -1,26 +1,21 @@
 {
   "host": "hubs.local",
-  "profilesDir": "profiles",
+  "scene": { "sceneId": "", "name": "Crater e2e", "modelUrl": "", "source": "services/spoke/test/fixtures/test-assets/crater.glb, wrapped by assets/generate.ts" },
   "accounts": {
-    "admin": { "email": "admin@example.com" },
-    "member1": { "email": "member1@example.com" },
-    "member2": { "email": "member2@example.com" }
+    "admin": { "email": "admin@example.com", "accountId": "", "isAdmin": true },
+    "member1": { "email": "member1@example.com", "accountId": "", "isAdmin": false },
+    "member2": { "email": "member2@example.com", "accountId": "", "isAdmin": false }
   },
   "rooms": {
-    "dialog-main": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
-    "livekit-main": { "hubId": "", "owner": "admin", "mediaServer": "livekit" },
-    "switch": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
-    "move-target-dialog": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
-    "move-target-livekit": { "hubId": "", "owner": "admin", "mediaServer": "livekit" },
-    "speak-x": { "hubId": "", "owner": "admin", "mediaServer": "dialog" },
-    "listen-y": { "hubId": "", "owner": "member1", "mediaServer": "dialog" },
-    "listen-z": { "hubId": "", "owner": "member2", "mediaServer": "dialog" },
-    "nimpro": {
-      "hubId": "",
-      "owner": "admin",
-      "mediaServer": "dialog",
-      "waypoints": ["N-impro-seat-01", "N-impro-seat-02", "N-impro-seat-03", "N-impro-seat-04", "N-impro-seat-05"]
-    },
-    "bitecs": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "bitecsClient": true, "addons": ["behavior-graph"] }
+    "dialog-main": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "" },
+    "livekit-main": { "hubId": "", "owner": "admin", "mediaServer": "livekit", "sceneId": "" },
+    "switch": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "" },
+    "move-target-dialog": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "" },
+    "move-target-livekit": { "hubId": "", "owner": "admin", "mediaServer": "livekit", "sceneId": "" },
+    "speak-x": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "" },
+    "listen-y": { "hubId": "", "owner": "member1", "mediaServer": "dialog", "sceneId": "" },
+    "listen-z": { "hubId": "", "owner": "member2", "mediaServer": "dialog", "sceneId": "" },
+    "nimpro": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "", "todo": "a scene with waypoints N-impro-seat-01 to N-impro-seat-05 (built in Spoke)" },
+    "bitecs": { "hubId": "", "owner": "admin", "mediaServer": "dialog", "sceneId": "", "todo": "turn on the bitECS based client and the Behavior Graph add-on" }
   }
 }

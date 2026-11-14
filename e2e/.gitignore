@@ -9,3 +9,10 @@ fixtures.json
 
 # Signed-in browser profiles: they hold session cookies
 profiles/
+
+# Generated or downloaded assets (assets/generate.ts and assets/SOURCES.md say how to get them back);
+# small files under about 200 KB may still be committed next to them
+assets/clips/
+assets/scenes/
+assets/avatars/*.vrm
+assets/avatars/*.glb
