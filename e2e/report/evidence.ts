@@ -20,8 +20,8 @@ import { startObsRecording, type ObsRecording } from "./obs";
 export type Status = "OK" | "NG" | "skipped" | "known limitation" | "invalid" | "not applicable";
 
 export type Check = { name: string; covers: string[]; status: Status; summary: string; data?: unknown; atMs: number };
-/** "sheet": a contact sheet, shown at full width in the report (T5) */
-export type FileKind = "screenshot" | "video" | "obs" | "data" | "log" | "recording" | "sheet";
+/** "sheet": a contact sheet, shown at full width in the report (T5); "grid": a who-hears-whom or who-sees-whom picture, shown inline at its own size (T7) */
+export type FileKind = "screenshot" | "video" | "obs" | "data" | "log" | "recording" | "sheet" | "grid";
 export type FileRef = { file: string; kind: FileKind; label: string; client?: string };
 
 export type TestResult = {

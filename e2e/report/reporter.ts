@@ -7,6 +7,7 @@ import path from "node:path";
 import type { FullResult, Reporter, TestCase, TestResult as PlaywrightResult } from "@playwright/test/reporter";
 import { evidenceId, runDir, statusOf, testMeta, type TestResult } from "./evidence";
 import { buildReport } from "./build-report";
+import { writeRunScans } from "./run-scans";
 
 export default class EvidenceReporter implements Reporter {
   private ended = 0;
@@ -58,6 +59,12 @@ export default class EvidenceReporter implements Reporter {
   onEnd(_result: FullResult) {
     // Nothing ran (e.g. --list): no report
     if (!this.ended) return;
+    // T6.8 and T6.10 over every client of every test of the run (report/run-scans.ts)
+    try {
+      writeRunScans(runDir());
+    } catch (e) {
+      console.error(`whole-run scans not written: ${(e as Error).message}`);
+    }
     try {
       const report = buildReport(runDir());
       console.log(`report: ${report}`);

@@ -152,13 +152,18 @@ function filesSection(t: TestResult): string {
   const sheets = t.files.filter(f => f.kind === "sheet");
   const shots = t.files.filter(f => f.kind === "screenshot");
   const videos = t.files.filter(f => f.kind === "video" || f.kind === "obs");
-  const other = t.files.filter(f => !["screenshot", "video", "obs", "sheet"].includes(f.kind));
+  const grids = t.files.filter(f => f.kind === "grid");
+  const other = t.files.filter(f => !["screenshot", "video", "obs", "sheet", "grid"].includes(f.kind));
   // Contact sheets (T5) at full width, each folded open
   const sheetList = sheets
     .map(
       f => `<details class="sheet" open><summary>${esc(f.label)}</summary><a href="${href(t.id, f.file)}"><img loading="lazy" src="${href(t.id, f.file)}" alt="${esc(f.label)}"></a></details>`
     )
     .join("");
+  // Who hears whom and who sees whom (T7): inline at their own size, side by side where they fit
+  const gridList = grids.length
+    ? `<div class="grids">${grids.map(f => `<a href="${href(t.id, f.file)}" title="${esc(f.label)}"><img loading="lazy" src="${href(t.id, f.file)}" alt="${esc(f.label)}"></a>`).join("")}</div>`
+    : "";
   const thumbs = shots.length
     ? `<div class="thumbs">${shots
         .map(
@@ -173,7 +178,7 @@ function filesSection(t: TestResult): string {
         <div class="videos">${videos.map(f => `<video controls preload="none" src="${href(t.id, f.file)}"></video>`).join("")}</div></details>`
     : "";
   const otherList = other.length ? `<details class="files"><summary>Data and logs (${other.length})</summary><ul>${other.map(link).join("")}</ul></details>` : "";
-  return sheetList + thumbs + videoList + otherList;
+  return sheetList + gridList + thumbs + videoList + otherList;
 }
 
 /** T5 at a glance: per block, avatar and mode, the old and the new solver over all motions (the summary test's t5-verdicts.json) */
@@ -296,6 +301,7 @@ th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom:
 .videos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 8px; }
 .videos video { width: 100%; border-radius: 4px; background: #000; }
 details.files { margin-top: 8px; } details summary { cursor: pointer; color: var(--muted); }
+.grids { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; } .grids img { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; display: block; }
 details.sheet { margin: 12px 0; } details.sheet img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 4px; margin-top: 6px; }
 .error { color: var(--ng); background: var(--ng-bg); white-space: pre-wrap; }
 .notes { margin: 8px 0; padding-left: 20px; } .notes li { color: var(--muted); }
