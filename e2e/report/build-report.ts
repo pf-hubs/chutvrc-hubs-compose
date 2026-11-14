@@ -149,9 +149,16 @@ function checksTable(checks: Check[]): string {
 }
 
 function filesSection(t: TestResult): string {
+  const sheets = t.files.filter(f => f.kind === "sheet");
   const shots = t.files.filter(f => f.kind === "screenshot");
   const videos = t.files.filter(f => f.kind === "video" || f.kind === "obs");
-  const other = t.files.filter(f => !["screenshot", "video", "obs"].includes(f.kind));
+  const other = t.files.filter(f => !["screenshot", "video", "obs", "sheet"].includes(f.kind));
+  // Contact sheets (T5) at full width, each folded open
+  const sheetList = sheets
+    .map(
+      f => `<details class="sheet" open><summary>${esc(f.label)}</summary><a href="${href(t.id, f.file)}"><img loading="lazy" src="${href(t.id, f.file)}" alt="${esc(f.label)}"></a></details>`
+    )
+    .join("");
   const thumbs = shots.length
     ? `<div class="thumbs">${shots
         .map(
@@ -166,7 +173,36 @@ function filesSection(t: TestResult): string {
         <div class="videos">${videos.map(f => `<video controls preload="none" src="${href(t.id, f.file)}"></video>`).join("")}</div></details>`
     : "";
   const otherList = other.length ? `<details class="files"><summary>Data and logs (${other.length})</summary><ul>${other.map(link).join("")}</ul></details>` : "";
-  return thumbs + videoList + otherList;
+  return sheetList + thumbs + videoList + otherList;
+}
+
+/** T5 at a glance: per block, avatar and mode, the old and the new solver over all motions (the summary test's t5-verdicts.json) */
+function ikSection(dir: string, tests: TestResult[]): string {
+  // Summaries that ran in this run's block (the other block's are skipped and have no verdicts)
+  const summaries = tests.filter(t => t.id.startsWith("t5-summary-") && fs.existsSync(path.join(dir, t.id, "t5-verdicts.json")));
+  if (!summaries.length) return "";
+  const arrow = (a: unknown, b: unknown) => `${a ?? "–"} → ${b ?? "–"}`;
+  const blocks = summaries
+    .map(t => {
+      const verdicts = readJson<any[]>(path.join(dir, t.id, "t5-verdicts.json")) ?? [];
+      const rows = verdicts
+        .map(
+          v => `<tr><td>${esc(v.avatar)}</td><td>${esc(v.mode)}</td><td><a href="#${esc(v.test)}">${badge(v.status)}</a></td>
+            <td>${esc(arrow(v.old.handErrMean, v.new.handErrMean))}</td><td>${esc(arrow(v.old.handErrMax, v.new.handErrMax))}</td>
+            <td>${esc(arrow(v.old.elbowWrong, v.new.elbowWrong))}</td><td>${esc(arrow(v.old.kneeWrong, v.new.kneeWrong))}</td>
+            <td>${esc(arrow(v.old.footMin, v.new.footMin))}</td><td>${esc(arrow(v.old.jumpPosMax, v.new.jumpPosMax))}</td><td>${esc(arrow(v.old.nanFrames, v.new.nanFrames))}</td></tr>`
+        )
+        .join("");
+      const sheets = t.files.filter(f => f.kind === "sheet").map(f => `<a href="${href(t.id, f.file)}">${esc(f.label)}</a>`).join(" · ");
+      const videos = t.files.filter(f => f.kind === "video").map(f => `<a href="${href(t.id, f.file)}">${esc(f.file)}</a>`).join(" · ");
+      const csv = t.files.filter(f => f.file.endsWith(".csv")).map(f => `<a href="${href(t.id, f.file)}">${esc(f.file)}</a>`).join(" · ");
+      return `<h3><a href="#${esc(t.id)}">${esc(t.title)}</a> ${badge(t.status)}</h3>
+        <table class="checks"><thead><tr><th>Avatar</th><th>Mode</th><th>Test</th><th>Hand error mean, cm (old → new)</th><th>Hand error max, cm</th><th>Wrong-side elbow frames</th><th>Wrong-side knee frames</th><th>Lowest sole, cm</th><th>Largest joint jump, cm</th><th>NaN frames</th></tr></thead><tbody>${rows}</tbody></table>
+        <p>Contact sheets: ${sheets || '<span class="muted">none</span>'}<br>Summary videos: ${videos || '<span class="muted">none</span>'}<br>Numbers: ${csv || '<span class="muted">none</span>'}</p>`;
+    })
+    .join("");
+  return `<h2>Inverse kinematics, old solver against new (T5)</h2><div class="panel">${blocks}
+    <p class="muted">Each test of an avatar and mode has its own per-frame numbers (ik-metrics.csv), per-motion numbers (ik-summary.csv), and a side-by-side video per motion; hand error exists only in VR.</p></div>`;
 }
 
 function testCard(t: TestResult): string {
@@ -260,6 +296,7 @@ th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom:
 .videos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 8px; }
 .videos video { width: 100%; border-radius: 4px; background: #000; }
 details.files { margin-top: 8px; } details summary { cursor: pointer; color: var(--muted); }
+details.sheet { margin: 12px 0; } details.sheet img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 4px; margin-top: 6px; }
 .error { color: var(--ng); background: var(--ng-bg); white-space: pre-wrap; }
 .notes { margin: 8px 0; padding-left: 20px; } .notes li { color: var(--muted); }
 `;
@@ -282,6 +319,7 @@ export function buildReport(dir: string): string {
   ${buildLine(run)}
   <div class="muted">Run <code>${esc(runId)}</code>${run?.startedAt ? ` · started ${esc(run.startedAt.slice(0, 19).replace("T", " "))} UTC` : ""} · ${tests.length} test${tests.length === 1 ? "" : "s"}</div>
   <div class="summary">${counts.map(([s, n]) => `<span class="badge ${statusClass(s)}">${n} ${esc(s)}</span>`).join("")}</div>
+  ${ikSection(dir, tests)}
   <h2>Run</h2><div class="panel">${runInfoSection(run)}</div>
   <h2>Tests</h2>${tests.map(testCard).join("") || '<p class="muted">No test results in this run.</p>'}
   <h2>Checklist coverage</h2><div class="panel">${coverageTable(tests) || '<p class="muted">Nothing covered yet.</p>'}</div>

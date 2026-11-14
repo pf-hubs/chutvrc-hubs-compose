@@ -20,7 +20,8 @@ import { startObsRecording, type ObsRecording } from "./obs";
 export type Status = "OK" | "NG" | "skipped" | "known limitation" | "invalid" | "not applicable";
 
 export type Check = { name: string; covers: string[]; status: Status; summary: string; data?: unknown; atMs: number };
-export type FileKind = "screenshot" | "video" | "obs" | "data" | "log" | "recording";
+/** "sheet": a contact sheet, shown at full width in the report (T5) */
+export type FileKind = "screenshot" | "video" | "obs" | "data" | "log" | "recording" | "sheet";
 export type FileRef = { file: string; kind: FileKind; label: string; client?: string };
 
 export type TestResult = {
@@ -103,6 +104,8 @@ export class Evidence {
 
   /** A named screenshot of one client: shot-<nn>-<client>-<label>.png */
   async screenshot(client: Client, label: string): Promise<string | null> {
+    // A test may close its clients itself before it ends (T5 makes its videos after closing them)
+    if (client.page.isClosed()) return null;
     const name = `shot-${String(++this.shotCount).padStart(2, "0")}-${client.name}-${label.replace(/[^A-Za-z0-9]+/g, "-")}.png`;
     try {
       await client.page.screenshot({ path: this.file(name), timeout: 15_000 });
