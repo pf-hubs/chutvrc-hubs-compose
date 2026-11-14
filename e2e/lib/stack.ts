@@ -32,6 +32,11 @@ export function compose(args: string[], input?: string): string {
   });
 }
 
+/** Runs docker compose with the extra services of docker-compose.e2e.yml (livekit, netclient, ...) */
+export function composeE2e(args: string[]): string {
+  return compose(["-f", "docker-compose.yml", "-f", "docker-compose.e2e.yml", ...args]);
+}
+
 /** Runs SQL in the database container; returns psql's unaligned, tab-separated rows */
 export function sql(query: string): string {
   return compose(["exec", "-T", "db", "psql", "-U", "postgres", "-d", "ret_dev", "-At", "-F", "\t", "-c", query]).trim();
@@ -80,12 +85,6 @@ export function lanAddressProblem(): string | null {
     .flat()
     .map(i => i?.address);
   return own.includes(address) ? null : `PRIVATE_NETWORK_IP=${address} is not an address of this PC any more`;
-}
-
-/** Which LiveKit block the server settings point at (plan 1.4); never returns the key or secret */
-export function liveKitBlock(): { block: "local" | "cloud" | "unset"; url: string | null } {
-  const url = sql(`select value->>'value' from ret0.server_configs where key = 'webrtc-settings|livekit_server_url'`) || null;
-  return { block: !url ? "unset" : url === "wss://hubs.local:7443" ? "local" : "cloud", url };
 }
 
 /**

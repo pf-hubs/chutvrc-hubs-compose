@@ -31,8 +31,10 @@ export default defineConfig({
   timeout: 20 * 60_000,
   expect: { timeout: 30_000 },
 
-  // Checks the stack and writes run.json before any test
+  // Checks the stack, switches to the run's media server block (MEDIA_BLOCK) and writes run.json before
+  // any test; the teardown puts the LiveKit server setting back
   globalSetup: "./suites/global-setup.ts",
+  globalTeardown: "./suites/global-teardown.ts",
 
   // report/reporter.ts completes each test's result.json and builds evidence/<run-id>/report.html
   reporter: [["list"], ["json", { outputFile: path.join(runDir, "results.json") }], ["./report/reporter.ts"]],

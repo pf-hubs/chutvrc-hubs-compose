@@ -20,6 +20,7 @@ import { movement, readPose, tracePose } from "../probes/poses";
 import { summariseRecording } from "../probes/recording";
 import { SEND_WATCH, collectErrors, countByReason, reticulumIoHosts, sendsBeforeOpen } from "../probes/errors";
 import { CONSOLE_ALLOW_LIST } from "./console-allowlist";
+import { blockId, blockTitle, runsOn } from "./blocks";
 
 const heard = (r: PilotResult) => r.ratio >= PILOT_HEARD && r.controlRatio <= PILOT_SILENT;
 const pilotText = (r: PilotResult) => `pilot ${r.ratio}${r.error ? ` (${r.error})` : ""}`;
@@ -38,7 +39,7 @@ async function smoke(evidence: Evidence, server: MediaServer) {
   const start = room(server === "dialog" ? "dialog-main" : "livekit-main");
   const target = room(server === "dialog" ? "move-target-dialog" : "move-target-livekit");
   const linkUrl = `${BASE_URL}/${target.hubId}`;
-  evidence.note(`rooms: ${start.hubId} (start), ${target.hubId} (link target); media server ${server}`);
+  evidence.note(`rooms: ${start.hubId} (start), ${target.hubId} (link target); media server ${server} (block ${blockId(server)})`);
 
   await evidence.recordWithObs();
   const [a, b] = await launchClients([
@@ -260,28 +261,22 @@ async function smoke(evidence: Evidence, server: MediaServer) {
   });
 }
 
+// Plan 4: T1 at the start of every run, on Dialog and on LiveKit. The Dialog test runs in the Dialog block,
+// the LiveKit test in whichever LiveKit block the run uses (MEDIA_BLOCK, suites/blocks.ts).
 test.describe("T1 smoke", () => {
-  test(
-    "T1 smoke on Dialog",
-    { annotation: [{ type: "id", description: "t1-smoke-dialog" }, { type: "covers", description: "B1 B2 B3 B5 B6" }] },
-    async ({ evidence }) => {
-      await smoke(evidence, "dialog");
-    }
-  );
-
-  test(
-    "T1 smoke on LiveKit, local server",
-    { annotation: [{ type: "id", description: "t1-smoke-livekit-local" }, { type: "covers", description: "B1 B2 B3 B5 B6 L2" }] },
-    async () => {
-      test.skip(true, "step 4: needs the local LiveKit block switched on (trials/d-livekit.ts local) around the run");
-    }
-  );
-
-  test(
-    "T1 smoke on LiveKit Cloud",
-    { annotation: [{ type: "id", description: "t1-smoke-livekit-cloud" }, { type: "covers", description: "B1 B2 B3 B5 B6 L2" }] },
-    async () => {
-      test.skip(true, "step 4: this PC has no LiveKit Cloud values yet (TRIALS.md, trial d)");
-    }
-  );
+  for (const server of ["dialog", "livekit"] as const) {
+    test(
+      `T1 smoke on ${blockTitle(server)}`,
+      {
+        annotation: [
+          { type: "id", description: `t1-smoke-${blockId(server)}` },
+          { type: "covers", description: server === "dialog" ? "B1 B2 B3 B5 B6" : "B1 B2 B3 B5 B6 L2 L3" }
+        ]
+      },
+      async ({ evidence }) => {
+        runsOn(server);
+        await smoke(evidence, server);
+      }
+    );
+  }
 });

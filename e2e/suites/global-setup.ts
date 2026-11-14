@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { request } from "@playwright/test";
 import { BASE_URL, FIXTURES_FILE } from "../lib/env";
 import { lanAddressProblem, restartReticulum, serverClockLag } from "../lib/stack";
+import { activeLiveKitBlock, hasCloudValues, liveKitBlockFor, mediaBlock, setLiveKitBlock } from "../lib/livekit";
 import { readFixtures } from "../lib/fixtures";
 import { clipPath, MEDIA_SLOTS, type SlotName } from "../assets/media";
 import { runDir, writeRunInfo } from "../report/evidence";
@@ -24,6 +25,19 @@ export default async function globalSetup() {
   for (const slot of Object.keys(MEDIA_SLOTS) as SlotName[]) {
     if (!fs.existsSync(clipPath(slot, "wav"))) throw new Error("the clips are missing: run npx tsx assets/generate.ts");
   }
+
+  // Plan 1.4: the LiveKit block this run uses (MEDIA_BLOCK); the teardown puts back what was there.
+  // Switching restarts reticulum, which also resets its clock (below).
+  const block = mediaBlock();
+  const wanted = liveKitBlockFor(block);
+  const before = activeLiveKitBlock().block;
+  process.env.E2E_LIVEKIT_BEFORE = before;
+  if (wanted === "cloud" && !hasCloudValues()) throw new Error("MEDIA_BLOCK=livekit-cloud needs LIVEKIT_CLOUD_* in e2e/.env.local");
+  if (wanted && wanted !== before) {
+    console.log(`media server block ${block}: switching the LiveKit server setting from ${before} to ${wanted} (restarts reticulum)`);
+    await setLiveKitBlock(wanted);
+  }
+  console.log(`media server block: ${block} (LiveKit server setting ${activeLiveKitBlock().block})`);
 
   // Reticulum's clock drifts behind on this PC (lib/stack.ts serverClockLag); past 300 s nobody can enter
   const probeRoom = readFixtures().rooms["dialog-main"].hubId;

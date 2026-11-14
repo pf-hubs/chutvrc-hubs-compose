@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { FullResult, Reporter, TestCase, TestResult as PlaywrightResult } from "@playwright/test/reporter";
-import { runDir, statusOf, testMeta, type TestResult } from "./evidence";
+import { evidenceId, runDir, statusOf, testMeta, type TestResult } from "./evidence";
 import { buildReport } from "./build-report";
 
 export default class EvidenceReporter implements Reporter {
@@ -14,7 +14,7 @@ export default class EvidenceReporter implements Reporter {
   onTestEnd(test: TestCase, result: PlaywrightResult) {
     this.ended++;
     const meta = testMeta(test.annotations, test.title);
-    const file = path.join(runDir(), meta.id, "result.json");
+    const file = path.join(runDir(), evidenceId(meta.id, test.repeatEachIndex), "result.json");
     const error = result.errors.map(e => e.message?.split("\n")[0]).filter(Boolean).join("; ") || undefined;
     const annotations = [...test.annotations, ...((result as { annotations?: typeof test.annotations }).annotations ?? [])];
     const skipReason = annotations.find(a => a.type === "skip" || a.type === "fixme")?.description;
@@ -22,7 +22,7 @@ export default class EvidenceReporter implements Reporter {
     if (!fs.existsSync(file)) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const minimal: TestResult = {
-        id: meta.id,
+        id: evidenceId(meta.id, test.repeatEachIndex),
         title: test.title,
         covers: meta.covers,
         status: statusOf(result.status, [], meta.knownLimitation),

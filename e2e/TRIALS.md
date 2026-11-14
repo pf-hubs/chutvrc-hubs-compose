@@ -130,7 +130,7 @@ The three settings are server settings in `ret0.server_configs` (`webrtc-setting
 - Room `livekit` (sfu 2, set in `ret0.hubs`): both DESK clients `sfuId` 2, `isConnected`, microphone `live`; each detects the other's pilot (ratio 0.28 and 0.31, control frequency 0); B sees A walk 4.8 m; the packet log has 90 `#avatar-pose` sent and 90 received in 3 s.
 - Afterwards the three keys were deleted again (the state found) and reticulum restarted.
 
-Switching between the blocks (`trials/d-livekit.ts`, values never printed):
+Switching between the blocks (`trials/d-livekit.ts`, values never printed; since step 4 the switching lives in `lib/livekit.ts` and a test run selects its block with `MEDIA_BLOCK`, see README.md):
 
 ```bash
 cd e2e

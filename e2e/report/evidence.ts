@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, expect, test, type TestInfo } from "@playwright/test";
 import { EVIDENCE_DIR, REPOS } from "../lib/env";
-import { gitState, lanAddressProblem, liveKitBlock, sql } from "../lib/stack";
+import { gitState, lanAddressProblem, sql } from "../lib/stack";
+import { activeLiveKitBlock, mediaBlock } from "../lib/livekit";
 import type { Client } from "../clients/launch";
 import { startObsRecording, type ObsRecording } from "./obs";
 
@@ -41,6 +42,12 @@ export function testMeta(annotations: { type: string; description?: string }[], 
   const knownLimitation = annotations.find(a => a.type === "known limitation")?.description;
   return { id, covers, knownLimitation };
 }
+
+/** The evidence folder of a test: its id, with the repetition for --repeat-each beyond the first */
+export const evidenceId = (id: string, repeatEachIndex = 0) => (repeatEachIndex ? `${id}-repeat${repeatEachIndex + 1}` : id);
+
+/** How long one check may take before it is recorded as NG and the test goes on */
+const CHECK_TIMEOUT_MS = 6 * 60_000;
 
 export class Evidence {
   readonly dir: string;
@@ -105,19 +112,25 @@ export class Evidence {
   /**
    * One check of the test: runs `fn` as a step and records its status, a one-line summary with the
    * numbers, and its data. A failed check marks the test NG (soft assertion) but later checks still run;
-   * an exception inside `fn` is recorded as NG with its message. Returns what `fn` returned.
+   * an exception inside `fn` is recorded as NG with its message. A check that has not finished after
+   * `timeoutMs` (a page that stopped answering never returns from page.evaluate) is recorded as NG too, and
+   * the test goes on. Returns what `fn` returned.
    */
   async check<T extends { ok: boolean | "invalid"; summary: string; data?: unknown }>(
     name: string,
     covers: string | string[],
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    timeoutMs = CHECK_TIMEOUT_MS
   ): Promise<T | undefined> {
     const items = Array.isArray(covers) ? covers : covers.split(/[,\s]+/).filter(Boolean);
     const atMs = Date.now() - this.t0;
     let outcome: T | undefined;
     await test.step(name, async () => {
       try {
-        outcome = await fn();
+        outcome = await Promise.race([
+          fn(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`the check did not finish within ${timeoutMs / 60_000} min`)), timeoutMs))
+        ]);
       } catch (e) {
         const message = (e as Error).message.split("\n")[0];
         this.checks.push({ name, covers: items, status: "NG", summary: `error: ${message}`, atMs });
@@ -202,7 +215,13 @@ export async function writeRunInfo() {
   let mediaServer: unknown;
   try {
     const rows = sql(`select key, value->>'value' from ret0.server_configs where key in ('webrtc-settings|default_sfu', 'webrtc-settings|allow_switch_sfu')`);
-    mediaServer = { liveKit: liveKitBlock(), serverSettings: Object.fromEntries(rows.split("\n").filter(Boolean).map(r => r.split("\t"))) };
+    mediaServer = {
+      // MEDIA_BLOCK of the run: which tests ran (plan 1.4), and the LiveKit server setting it used
+      block: mediaBlock(),
+      liveKit: activeLiveKitBlock(),
+      liveKitBeforeRun: process.env.E2E_LIVEKIT_BEFORE ?? null,
+      serverSettings: Object.fromEntries(rows.split("\n").filter(Boolean).map(r => r.split("\t")))
+    };
   } catch (e) {
     mediaServer = { error: (e as Error).message.split("\n")[0] };
   }

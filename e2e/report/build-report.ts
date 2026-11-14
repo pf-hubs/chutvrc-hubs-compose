@@ -40,6 +40,22 @@ const ITEMS: Record<string, string> = {
   V7: "Interpolation",
   V8: "Bandwidth",
   V9: "Old build compatibility",
+  A1a: "Reconnect after a Dialog host change",
+  A1c: "Record Dialog messages only while recording",
+  A1d: "Dispose the old LiveKit room before reconnecting",
+  A1e: "Replace the microphone track instead of publishing it twice",
+  A1f: "Relay queue only in public speaking receivers",
+  A1g: "Force TCP option to the Dialog transport",
+  A1i: "RTC panel follows the active adapter",
+  A1j: "Dialog camera and screen producers",
+  A1k: "No reconnect after an intentional LiveKit disconnect",
+  A2: "SfuConfig",
+  A5: "SfuSession and the connection contract",
+  A6: "Clean-up of the transport layer",
+  A7: "Transport fixes after review (media and recording carried over a switch)",
+  B1a: "Re-entry: pose sync starts again",
+  B8: "Pose format (isVR, tracked bits, animation state)",
+  "mute-fix": "Mute toggle fix",
   "T6.8": "No request to a reticulum.io host",
   "T6.10": "No console errors outside the allow-list",
   "2.2": "Frame rate floor (plan 2.2)"
@@ -85,7 +101,9 @@ function runInfoSection(run: any): string {
     .join("");
   const lk = run.mediaServer?.liveKit;
   const media = lk
-    ? `LiveKit block: <b>${esc(lk.block)}</b>${lk.block === "local" ? ` (${esc(lk.url)})` : ""}; server settings: ${esc(JSON.stringify(run.mediaServer.serverSettings ?? {}))}`
+    ? `media server block: <b>${esc(run.mediaServer.block ?? "dialog")}</b>; LiveKit server setting: <b>${esc(lk.block)}</b>${lk.block === "local" ? ` (${esc(lk.url)})` : ""}` +
+      (run.mediaServer.liveKitBeforeRun && run.mediaServer.liveKitBeforeRun !== lk.block ? ` (was ${esc(run.mediaServer.liveKitBeforeRun)} before the run)` : "") +
+      `; server settings: ${esc(JSON.stringify(run.mediaServer.serverSettings ?? {}))}`
     : esc(JSON.stringify(run.mediaServer ?? {}));
   const m = run.machine ?? {};
   return `
