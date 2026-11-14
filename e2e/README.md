@@ -19,13 +19,15 @@ Playwright drives several browsers on this PC, each with its own profile, as if 
 
 Created on each machine and ignored by git: `node_modules/`, `evidence/`, `.env.local`, `fixtures.json`, `profiles/` (signed-in browser profiles), the generated clips and scene under `assets/`.
 
+`evidence/` and `profiles/` grow to several GB. `EVIDENCE_DIR` and `PROFILES_DIR` in `.env.local` put them elsewhere (absolute, or relative to `e2e/`); on this PC they are `D:\chutvrc-e2e\evidence` and `D:\chutvrc-e2e\profiles`, because drive C: is short of space. Everything that writes or reads them (`lib/env.ts`, `playwright.config.ts`, the report, the trials) follows the settings. A run's `report.html` links its files relatively, so a run folder can be moved as a whole; move the existing folders when changing a setting, or the profiles have to be signed in again (`setup/create-fixtures.ts`).
+
 ## Setup
 
 ```bash
 cd e2e
 npm install
 npx playwright install chromium webkit
-cp .env.local.example .env.local         # OBS WebSocket password, LAN address
+cp .env.local.example .env.local         # OBS WebSocket password, LAN address, evidence and profile directories
 npx tsx assets/generate.ts               # clips per client slot, media files, the Crater and N-impro scenes (needs ffmpeg)
 npx tsx setup/create-fixtures.ts         # accounts, signed-in profiles, the scenes, the rooms -> fixtures.json
 ```

@@ -3,12 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { EVIDENCE_DIR, PROFILES_DIR } from "../lib/env";
 
 export const E2E = path.resolve(import.meta.dirname, "..");
 export const COMPOSE_ROOT = path.resolve(E2E, "..");
-export const EVIDENCE = path.join(E2E, "evidence", "trials");
+export const EVIDENCE = path.join(EVIDENCE_DIR, "trials");
 export const MEDIA = path.join(EVIDENCE, "media");
-export const PROFILES = path.join(E2E, "profiles");
+export const PROFILES = PROFILES_DIR;
 export const FIXTURES = path.join(E2E, "fixtures.json");
 export const HOST = "hubs.local";
 export const BASE = `https://${HOST}:4000`;

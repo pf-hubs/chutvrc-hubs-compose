@@ -1,19 +1,14 @@
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
-
-const root = import.meta.dirname;
-
-// Local settings (OBS WebSocket, LAN address). Copied from .env.local.example; git-ignored.
-try {
-  process.loadEnvFile(path.join(root, ".env.local"));
-} catch {
-  // No .env.local yet: tests that need OBS or the LAN address check for it themselves.
-}
+// Reads the local settings of .env.local (OBS WebSocket, LAN address, the evidence and profile
+// directories; copied from .env.local.example, git-ignored). Without it, tests that need OBS or the
+// LAN address check for it themselves, and evidence and profiles stay under e2e/.
+import { EVIDENCE_DIR } from "./lib/env";
 
 // One id per run, shared with the worker processes through the environment, so every
-// file of a run lands in evidence/<run-id>/.
+// file of a run lands in <EVIDENCE_DIR>/<run-id>/.
 process.env.E2E_RUN_ID ??= new Date().toISOString().replace(/[:.]/g, "-");
-const runDir = path.join(root, "evidence", process.env.E2E_RUN_ID);
+const runDir = path.join(EVIDENCE_DIR, process.env.E2E_RUN_ID);
 
 export default defineConfig({
   testDir: "suites",
