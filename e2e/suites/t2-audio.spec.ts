@@ -1,15 +1,16 @@
-// T2 transport and media, audio (plan 4): T2.1 both talk, T2.2 mute and unmute with the toolbar,
+// T2 transport and media, audio (plan 4): T2.1 both talk, T2.2 mute and unmute with the toolbar, T2.2b entering with the microphone muted,
 // T2.3 changing the input device in audio settings. Each runs on Dialog in the Dialog block and on
 // LiveKit in a LiveKit block (suites/blocks.ts).
 import { test } from "./harness";
 import type { Evidence } from "../report/evidence";
-import { room, type MediaServer } from "../lib/fixtures";
+import { room, SFU_ID, type MediaServer } from "../lib/fixtures";
 import * as input from "../clients/input";
 import { startCablePlayer, CABLE_MICROPHONE, type CablePlayer } from "../clients/cable";
 import { CONTROL_HZ } from "../assets/media";
+import { enterRoom, setMuteOnEntryPreference } from "../clients/enter";
 import { readSession, remoteTracks } from "../probes/session";
 import { PILOT_SILENT, heardPilot, startPilotWatch, stopPilotWatch } from "../probes/audio";
-import { describePairs, measureRates, packetRateFrom } from "../probes/connections";
+import { describePairs, measureRates, packetRateFrom, packetsFrom } from "../probes/connections";
 import { blockId, blockTitle, runsOn } from "./blocks";
 import {
   closingChecks,
@@ -20,6 +21,8 @@ import {
   idOf,
   mainRoom,
   micWishLost,
+  micWishNote,
+  noteClientApi,
   pilotText,
   silent,
   startClients,
@@ -180,6 +183,117 @@ for (const server of SERVERS) {
         };
       });
       await closingChecks(evidence, [a, b]);
+    }
+  );
+}
+
+// ---------- T2.2b ----------
+
+/** How long B listens to the muted client before it unmutes, and how soon after the unmute click the pilot must be back */
+const MUTED_WINDOW_MS = 10_000;
+const UNMUTED_HEARD_WITHIN_MS = 2000;
+
+for (const server of SERVERS) {
+  test(
+    `T2.2b enter with the microphone muted on ${blockTitle(server)}`,
+    {
+      annotation: [
+        { type: "id", description: `t2.2b-${blockId(server)}` },
+        { type: "covers", description: covers(server, "B2") }
+      ]
+    },
+    async ({ evidence }) => {
+      runsOn(server);
+      await evidence.recordWithObs();
+      const [a, b] = await startClients(evidence, [
+        { identity: "admin", account: "admin", slot: "a" },
+        { identity: "member1", account: "member1", slot: "b" }
+      ]);
+      const hub = room(mainRoom(server));
+      evidence.note(`room ${mainRoom(server)} ${hub.hubId} (${hub.mediaServer}); A switches "Mute" on in the microphone setup step before Enter Room, B enters as usual (its toggle set off)`);
+      try {
+        const timings = await Promise.all([
+          enterRoom(a, hub.hubId, { displayName: a.name, enterMuted: true }),
+          enterRoom(b, hub.hubId, { displayName: b.name, enterMuted: false })
+        ]);
+        evidence.saveJson("entry.json", { A: timings[0], B: timings[1] }, "entry timings (ms from opening the page)");
+        await noteClientApi(evidence, a);
+        const ida = await idOf(a);
+
+        // B listens to A from the moment both are in; the packet count is taken at the same time
+        await startPilotWatch(b.page, "muted", ida, a.pilotHz);
+        const startedAt = Date.now();
+        const packetsAtStart = await packetsFrom(b.page, ida);
+        const atEntry = {
+          button: await input.micButtonState(a.page),
+          micEnabled: (await readSession(a.page)).micEnabled,
+          msAfterWatchStart: Date.now() - startedAt
+        };
+        await evidence.screenshot(a, "entered-muted");
+        await evidence.check("Right after entry: the Voice button shows muted and isMicEnabled is false", "B2", async () => ({
+          ok: atEntry.button === "muted" && atEntry.micEnabled === false,
+          summary: `button ${atEntry.button}, isMicEnabled ${atEntry.micEnabled}${micWishNote([a])}`,
+          data: atEntry
+        }));
+
+        await a.page.waitForTimeout(Math.max(0, MUTED_WINDOW_MS - (Date.now() - startedAt)));
+        const packetsAtEnd = await packetsFrom(b.page, ida);
+        const mutedWatch = await stopPilotWatch(b.page, "muted");
+        evidence.saveJson("muted-watch.json", { packetsAtStart, packetsAtEnd, ...mutedWatch }, "B's pilot watch of A during the first seconds after both entered, A muted (ms from the watch start)");
+        const seconds = (packetsAtEnd.at - packetsAtStart.at) / 1000;
+        const received = packetsAtEnd.packets - packetsAtStart.packets;
+        const rate = seconds > 0 ? +(received / seconds).toFixed(1) : 0;
+
+        await evidence.check(`${MUTED_WINDOW_MS / 1000} s after entry: B does not detect A's pilot`, "B2", async () => ({
+          ok: mutedWatch.detections.length === 0,
+          summary:
+            `${mutedWatch.detections.length} detection(s) over ${(mutedWatch.durationMs / 1000).toFixed(1)} s` +
+            (mutedWatch.detections.length ? ` (first at ${mutedWatch.detections[0]} ms, last at ${mutedWatch.detections[mutedWatch.detections.length - 1]} ms)` : "") +
+            `; B played ${mutedWatch.tracks.length} audio track(s) of A`,
+          data: { detections: mutedWatch.detections.length, firstMs: mutedWatch.detections[0] ?? null, lastMs: mutedWatch.detections[mutedWatch.detections.length - 1] ?? null, tracks: mutedWatch.tracks }
+        }));
+        await evidence.check(`${MUTED_WINDOW_MS / 1000} s after entry: B receives (almost) no audio packets from A`, "B2", async () => ({
+          ok: rate <= MUTED_PACKETS_PER_SECOND,
+          summary: `${received} packets in ${seconds.toFixed(1)} s = ${rate}/s (limit ${MUTED_PACKETS_PER_SECOND}/s; a sender that talks gives about 50/s); B holds ${packetsAtEnd.tracks} audio track(s) for A`,
+          data: { packets: received, seconds, perSecond: rate, tracksAtStart: packetsAtStart.tracks, tracksAtEnd: packetsAtEnd.tracks }
+        }));
+
+        // Unmute with the toolbar's Voice button; the pilot watched from just before the click
+        await startPilotWatch(b.page, "unmute", ida, a.pilotHz);
+        await b.page.waitForTimeout(1000);
+        const clickAt = Date.now();
+        await input.clickMic(a.page);
+        await a.page.waitForTimeout(3000);
+        const unmuteWatch = await stopPilotWatch(b.page, "unmute");
+        const clickMs = clickAt - unmuteWatch.startedAt;
+        const firstHeard = unmuteWatch.detections.find(t => t >= clickMs);
+        const heardBeforeClick = unmuteWatch.detections.some(t => t < clickMs);
+        const afterUnmute = { button: await input.micButtonState(a.page), micEnabled: (await readSession(a.page)).micEnabled, bHears: await heardPilot(b.page, ida, a.pilotHz, CONTROL_HZ, 3000) };
+        await evidence.screenshot(a, "unmuted");
+        evidence.saveJson("unmute-watch.json", { clickAtMs: clickMs, ...unmuteWatch }, "B's pilot watch of A around the unmute click");
+        await evidence.check(`After unmuting with the Voice button: B hears the pilot within ${UNMUTED_HEARD_WITHIN_MS / 1000} s`, "B2", async () => ({
+          ok: firstHeard !== undefined && firstHeard - clickMs <= UNMUTED_HEARD_WITHIN_MS,
+          summary:
+            `pilot ${firstHeard === undefined ? "not heard within 3 s of the click" : `heard ${firstHeard - clickMs} ms after the click`}` +
+            `${heardBeforeClick ? "; it was already heard before the click (A was live while muted)" : ""}; ` +
+            `then button ${afterUnmute.button}, isMicEnabled ${afterUnmute.micEnabled}, B ${pilotText(afterUnmute.bHears)}`,
+          data: { pilotBackAfterMs: firstHeard === undefined ? null : firstHeard - clickMs, heardBeforeClick, afterUnmute }
+        }));
+
+        await frameRateCheck(evidence, [a, b]);
+        await evidence.check(`Both connected to ${server === "dialog" ? "Dialog" : "LiveKit"} (the microphone track is live)`, "B2", async () => {
+          const sessions = await Promise.all([a, b].map(c => readSession(c.page)));
+          return {
+            ok: sessions.every(s => s.sfuId === SFU_ID[server] && s.isConnected && s.micTrack === "live"),
+            summary: sessions.map((s, i) => `${[a, b][i].name}: sfuId ${s.sfuId}, connected ${s.isConnected}, mic ${s.micTrack}, isMicEnabled ${s.micEnabled}`).join("; "),
+            data: sessions
+          };
+        });
+        await closingChecks(evidence, [a, b]);
+      } finally {
+        // The Mute toggle changed A's profile (preference muteMicOnEntry); the later tests start unmuted
+        await setMuteOnEntryPreference(a.page, false).catch(() => {});
+      }
     }
   );
 }

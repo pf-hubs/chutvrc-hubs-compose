@@ -23,6 +23,12 @@ export type EnterOptions = {
    * profile keeps them between runs, so a test that depends on one sets it here)
    */
   preferences?: Record<string, unknown>;
+  /**
+   * Whether to enter with the microphone muted: switches the "Mute" toggle of the microphone setup step as a user does.
+   * The client keeps that choice as the "muteMicOnEntry" preference of the profile, so the next entry starts from it;
+   * a test that sets it to true puts it back to false when it ends (setMuteOnEntryPreference). Left out: the toggle is not touched.
+   */
+  enterMuted?: boolean;
   /** Extra query string, e.g. "?force_tcp" */
   query?: string;
   timeout?: number;
@@ -61,6 +67,7 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const profile = since();
 
   await enter.waitFor({ state: "visible", timeout: 60_000 });
+  if (opts.enterMuted !== undefined) await setMuteToggle(page, opts.enterMuted);
   // Enabled once the microphone has been granted and opened
   await page.waitForFunction(
     () => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === "Enter Room" && !b.disabled),
@@ -84,6 +91,23 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
     await skipTour(page);
   }
   return { load, joinVisible, profile, mic, entered, mediaServer, presenting };
+}
+
+/**
+ * The microphone setup step's "Mute" toggle (MicSetupModal.js: a checkbox inside a label, drawn as a switch; the
+ * checkbox itself is 0 x 0 and transparent, so the click goes to its label, as a person's click on the switch does).
+ * It appears once the browser has given the page the microphone.
+ */
+export async function setMuteToggle(page: Page, muted: boolean) {
+  const checkbox = page.getByRole("checkbox", { name: "Mute", exact: true });
+  await checkbox.waitFor({ state: "attached", timeout: 60_000 });
+  if ((await checkbox.isChecked()) !== muted) await page.locator("label").filter({ has: checkbox }).click();
+  if ((await checkbox.isChecked()) !== muted) throw new Error(`the microphone setup's Mute toggle did not become ${muted ? "on" : "off"}`);
+}
+
+/** Puts the "mute the microphone on entry" preference back (the toggle above changes it for the profile) */
+export function setMuteOnEntryPreference(page: Page, muted: boolean) {
+  return page.evaluate(muted => (window as any).APP.store.update({ preferences: { muteMicOnEntry: muted } }), muted);
 }
 
 export async function waitEntered(page: Page, timeout = 60_000) {
