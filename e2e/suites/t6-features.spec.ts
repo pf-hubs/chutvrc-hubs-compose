@@ -1055,12 +1055,12 @@ async function bitecsRoom(evidence: Evidence) {
 
   evidence.notApplicable(
     "The Behavior Graph scene runs and stays in step on both",
-    "N2 N3",
+    "N2",
     "open: no Behavior Graph scene. The examples repository holds only .blend files, and running Blender with the downloaded add-ons to export one was not permitted in this session (assets/behavior-graph/README.md)"
   );
 
   let videoNid = "";
-  await evidence.check("Place a video: both show it, and it is fetched once", "N4 review-fix-6", async () => {
+  await evidence.check("Place a video: both show it, and it is fetched once", "N3 review-fix-7 review-fix-8", async () => {
     await input.placeFromUrl(a.page, VIDEO_URL);
     const shown = await waitUntil(async () => {
       const [ma, mb] = [await bitMedia(a, VIDEO_URL), await bitMedia(b, VIDEO_URL)];
@@ -1085,7 +1085,7 @@ async function bitecsRoom(evidence: Evidence) {
   let frameItemNid = "";
   let frameTries: string[] = [];
   let framed = false;
-  await evidence.check("Pin the video and an image (object menu); try to put a second image into the media frame", "N5", async () => {
+  await evidence.check("Pin the video and an image (object menu); try to put a second image into the media frame", "N4", async () => {
     await input.placeFromUrl(a.page, IMAGE_URL);
     const image = await waitUntil(async () => (await bitMedia(a, IMAGE_URL))[0] ?? null, 30_000);
     imageNid = image.value?.nid ?? "";
@@ -1144,11 +1144,11 @@ async function bitecsRoom(evidence: Evidence) {
   if (!framed) {
     evidence.notApplicable(
       "A media-frame item is captured and comes back after re-entry",
-      "review-fix-7",
+      "N4 review-fix-6",
       `open (harness): the test did not get the image into the scene's media frame by dragging it with the mouse (${frameTries.join("; ") || "no attempt"}), so the frame's restore was not checked`
     );
   }
-  await evidence.check("Leave and enter again: the pinned items return (and the frame's item, when it held one)", "N5 review-fix-7", async () => {
+  await evidence.check("Leave and enter again: the pinned items return (and the frame's item, when it held one)", "N4 review-fix-6", async () => {
     const before = await bitState(a);
     for (const c of [a, b]) {
       await input.leaveRoom(c.page).catch(() => {});
@@ -1175,7 +1175,7 @@ async function bitecsRoom(evidence: Evidence) {
     };
   });
 
-  await evidence.check("Grab: an unpinned object moves and B agrees, the pinned video does not move", "N4 review-fix-1", async () => {
+  await evidence.check("Grab: an unpinned object moves and B agrees, the pinned video does not move", "N5 review-fix-1", async () => {
     await input.placeFromUrl(a.page, MODEL_URL);
     const model = await waitUntil(async () => (await bitMedia(a, MODEL_URL))[0] ?? null, 30_000);
     await a.page.waitForTimeout(2000);
@@ -1194,7 +1194,7 @@ async function bitecsRoom(evidence: Evidence) {
     };
   });
 
-  await evidence.check('No "Failed to deserialize component data" on either client', "review-fix-7 review-fix-8", async () => {
+  await evidence.check('No "Failed to deserialize component data" on either client', "N4 review-fix-6", async () => {
     const hits = [a, b].flatMap(c => c.log.filter(e => /Failed to deserialize component data/.test(e.text)).map(e => `${c.name}: ${e.text.slice(0, 160)}`));
     return { ok: hits.length === 0, summary: hits.length ? `${hits.length}: ${hits.slice(0, 3).join(" | ")}` : "none", data: hits };
   });

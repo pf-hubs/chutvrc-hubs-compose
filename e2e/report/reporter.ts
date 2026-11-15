@@ -46,7 +46,11 @@ export default class EvidenceReporter implements Reporter {
     }
     if (result.status === "skipped" && written.status !== "skipped") {
       written.status = "skipped";
-      if (skipReason) written.notes.push(skipReason);
+      changed = true;
+    }
+    // The reason belongs in result.json also when the evidence fixture already wrote the test as skipped
+    if (result.status === "skipped" && skipReason && !written.notes.includes(skipReason)) {
+      written.notes.push(skipReason);
       changed = true;
     }
     if (error && !written.error) {
