@@ -243,3 +243,18 @@ Two observations for T4.5 and T4.7:
 - Reinstalling dependencies: `conditional-npm-ci` for hubs-client failed with `ENOTEMPTY ... node_modules/.cache/storybook/babel` because `hubs-storybook` shares the volume and was running, and it still wrote `package-lock.sha512`, so a plain rerun would have skipped the install. Stop `hubs-storybook` too and run `rm -f package-lock.sha512 && npm ci`.
 - Console errors seen on every client, for the allow-list: an inline script blocked by the content security policy, one 404, `MISSING_TRANSLATION` (locale `ja` only), React `defaultProps` warnings, and on Dialog "InvalidStateError: Failed to execute 'send' on 'RTCDataChannel': RTCDataChannel.readyState is not 'open'" while channels open.
 - Stale mutagen sessions of an earlier `bin/up` (pointing to a removed container) stay listed as "Connecting to beta"; harmless.
+
+## Step 8: the phone and tablet profiles, the modifiers
+
+Trials `trials/step8-devices.ts` (a phone or tablet profile in `dialog-main` with a DESK observer), `step8-ios-audio.ts` (where the IOS client's audio goes) and `step8-offline-check.ts` (the harness's connection to the container during a blackout); results under `evidence/trials/step8/`.
+
+| Profile | Result |
+| --- | --- |
+| ANDROID (Edge, Pixel 7 descriptor) | `isMobile()` true; the client shows its two on-screen joysticks (nipplejs, centres 80 px from the sides, near the bottom); entry 17 s; 60 fps in a visible window; a touch drag through `Input.dispatchTouchEvent` on the left stick walked 10 m and on the right stick turned 86° as the DESK observer saw it; pilot heard both ways (0.20 and 0.27); a viewport swap gives `landscape-primary`, the canvas resizes and the sticks move to the new corners. The toolbar of an anonymous member has Voice, Chat, Recording and Chutvrc (the rooms' member permissions are 192: voice and text chat only); signed in as the room's owner the phone reaches Place, whose menu opens as a full-screen sheet (Pen, Camera, Avatar, Scene, Upload) |
+| IOS (Linux WebKit in `netclient`, iPhone 15 descriptor) | entry 18 s, 25 frames a second (software rendering), Dialog connected, the joysticks shown; drags dispatched in the page as pointer and touch events walk and turn it (9 m, 39° at the observer); rotation as on ANDROID. WebKit's mock microphone sends no clip, so `pilot-mic.ts` replaces the audio track with the slot's pilot made with Web Audio: the observer hears it (0.67 to 0.73: the beep stands out over the quiet noise floor longer than a clip's). The WebKit client's own Web Audio reads silence from a remote WebRTC track (analyser peak 8 to 12 dB, once 34 dB), while its inbound RTP for that track carries audio at the sender's level (about -50 dBFS); its hearing is therefore measured from the statistics |
+| IOS_IPAD (iPad (gen 7) descriptor) | entry 16 s, 15 to 17 frames a second; on Dialog it lost its voice to the observer or its receiving in 4 of 7 runs (once its send transport stayed "connecting" and was given up, the pattern of known failure 21; BASELINE.md #35) |
+
+Two harness findings:
+
+- The poor-network client's blackout (`tc netem loss 100%` on the container's interface) also cut the harness's own connection to the container's browser server, so a page call made during the blackout waited for the link and T7.5 hung. `clients/network.ts` now puts netem into one band of a priority queue and the browser server's replies (source port 3100) into another: during a blackout a page call answers in 7 ms while the page's own requests time out.
+- A wait polled on animation frames (Playwright's default) never ends on a headset in VR, whose window frame callbacks are held as on the Quest Browser; waits that can run while the QUEST client presents poll on a timer.
