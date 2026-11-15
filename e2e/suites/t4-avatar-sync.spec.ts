@@ -461,16 +461,24 @@ async function lateJoin(evidence: Evidence, server: MediaServer) {
   const lobby = { A: await readPeers(a.page), B: await readPeers(b.page) };
   await evidence.screenshot(c, "C-in-lobby");
   await evidence.screenshot(a, "A-while-C-in-lobby");
+  const cId = cLobby && !("error" in cLobby) ? cLobby.clientId : "";
+  const lobbyText = `C in the lobby: ${cLobby && !("error" in cLobby) ? `connected ${cLobby.isConnected}, client id ${cId || "none"}` : "no session"}`;
   await evidence.check("C, waiting in the lobby, is not drawn by A or B before it enters", "A5", async () => {
-    const extraA = [...new Set([...lobby.A.models, ...lobby.A.poses])].filter(id => id !== idb);
-    const extraB = [...new Set([...lobby.B.models, ...lobby.B.poses])].filter(id => id !== ida);
+    const extraA = lobby.A.models.filter(id => id !== idb);
+    const extraB = lobby.B.models.filter(id => id !== ida);
     return {
       ok: extraA.length === 0 && extraB.length === 0,
-      summary:
-        `after 8 s in the lobby: A holds ${extraA.length} other model or pose besides B's (models ${lobby.A.models.length}, poses ${lobby.A.poses.length}), ` +
-        `B holds ${extraB.length} besides A's (models ${lobby.B.models.length}, poses ${lobby.B.poses.length}); ` +
-        `C in the lobby: ${cLobby && !("error" in cLobby) ? `connected ${cLobby.isConnected}, client id ${cLobby.clientId || "none"}` : "no session"}`,
+      summary: `after 8 s in the lobby: A draws ${extraA.length} model besides B's, B draws ${extraB.length} besides A's; ${lobbyText}`,
       data: { lobby, cLobby, extraA, extraB }
+    };
+  });
+  await evidence.check("C sends no pose from the lobby (A and B hold none for it)", "A5", async () => {
+    const extraA = lobby.A.poses.filter(id => id !== idb);
+    const extraB = lobby.B.poses.filter(id => id !== ida);
+    return {
+      ok: extraA.length === 0 && extraB.length === 0,
+      summary: `after 8 s in the lobby: A holds ${extraA.length} pose besides B's, B ${extraB.length} besides A's${cId && (extraA.includes(cId) || extraB.includes(cId)) ? " (C's)" : ""}; ${lobbyText}`,
+      data: { lobby, extraA, extraB }
     };
   });
   const t0 = Date.now();

@@ -54,8 +54,23 @@ export async function launchBot(opts: BotOptions): Promise<Client> {
   });
   // As run-bot.js: a click so the page may play audio, then the audio and the recording
   await page.mouse.click(100, 100).catch(() => {});
-  await page.locator("#bot-audio-input").setInputFiles(clipPath(opts.slot, "wav"), { timeout: 240_000 });
-  await page.locator("#bot-data-input").setInputFiles(BOT_RECORDING);
+  try {
+    await page.locator("#bot-audio-input").setInputFiles(clipPath(opts.slot, "wav"), { timeout: 240_000 });
+    await page.locator("#bot-data-input").setInputFiles(BOT_RECORDING);
+  } catch (e) {
+    // Keep what the bot that did not start shows and logged, then give up on it
+    if (opts.evidence) {
+      const state = await page
+        .evaluate(() => ({ url: location.href, readyState: document.readyState, scripts: document.scripts.length, app: !!(window as any).APP, scene: !!(window as any).AFRAME?.scenes?.[0] }))
+        .catch(err => ({ error: String(err) }));
+      log.push({ t: 0, type: "warning", text: `[e2e] the bot did not take its files: ${JSON.stringify(state)}` });
+      const shot = `${name}-not-started.png`;
+      await page.screenshot({ path: opts.evidence.file(shot), timeout: 30_000 }).then(() => opts.evidence!.addFile(shot, "screenshot", `${name} when it did not take its files`)).catch(() => {});
+      saveRecords(opts.evidence, name, log, hostCounts);
+    }
+    await settle(browser.close());
+    throw e;
+  }
 
   let closed = false;
   const client: Client = {
