@@ -50,7 +50,15 @@ export function testMeta(annotations: { type: string; description?: string }[], 
 }
 
 /** The evidence folder of a test: its id, with the repetition for --repeat-each beyond the first */
-export const evidenceId = (id: string, repeatEachIndex = 0) => (repeatEachIndex ? `${id}-repeat${repeatEachIndex + 1}` : id);
+/**
+ * The repetition's number, from 0: Playwright's index plus E2E_REPEAT_OFFSET, so that a repeated test stopped half way
+ * can be continued into the same run (E2E_REPEAT_OFFSET=7 --repeat-each 3 writes repetitions 8 to 10)
+ */
+export const repetitionIndex = (repeatEachIndex = 0) => repeatEachIndex + (Number(process.env.E2E_REPEAT_OFFSET) || 0);
+export const evidenceId = (id: string, repeatEachIndex = 0) => {
+  const n = repetitionIndex(repeatEachIndex);
+  return n ? `${id}-repeat${n + 1}` : id;
+};
 
 /** How long one check may take before it is recorded as NG and the test goes on */
 const CHECK_TIMEOUT_MS = 6 * 60_000;

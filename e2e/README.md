@@ -76,6 +76,7 @@ MEDIA_BLOCK=livekit-local npx playwright test suites/t5-ik   # T5 on the local L
 T5_MOTIONS=m01,m05 npx playwright test suites/t5-ik -g "Ready Player Me sample, headset"   # a quick look at two motions
 E2E_RUN_ID=<run id> npx playwright test suites/t5-ik -g "VRM 1.0 sample, desktop|contact sheets"   # re-run a test into an existing run's folders, then its summary
 npx playwright test suites/t2-audio -g "T2.1" --repeat-each=3   # a flaky test three times, each in its own folder
+E2E_REPEAT_OFFSET=7 E2E_RUN_ID=<run id> npx playwright test suites/t1-smoke --repeat-each=3   # continue a repeated test into the same run: these are repetitions 8 to 10 (folders ...-repeat8 to ...-repeat10)
 AVATAR_REANNOUNCE=0 npx playwright test suites/t1-smoke   # the avatar re-announce workaround (clients/workarounds.ts reannounceAvatars, and t5-ik's own announcements) off in every test; on by default
 npx playwright test suites/t2-audio -g "T2.2b "   # T2.2b: a client enters with the microphone muted through the Mute toggle of the microphone setup step (the space keeps "T2.2 " from matching it and the other way round)
 npm run typecheck
