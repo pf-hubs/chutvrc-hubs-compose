@@ -4,12 +4,22 @@ import type { Evidence } from "../report/evidence";
 import type { Client } from "./launch";
 
 /**
+ * AVATAR_REANNOUNCE=0 turns the avatar re-announce workaround off in every test: reannounceAvatars below sends nothing
+ * and says so in the evidence, and t5-ik's own announcements are skipped as well. On by default.
+ */
+export const avatarReannounceEnabled = () => process.env.AVATAR_REANNOUNCE !== "0";
+
+/**
  * Known failure: a client announces its avatar (#avatarId) once, right after entry, often before the
  * channel is open, so the others never load its model (T1, "The other's avatar is drawn"). Sending the
  * announcement again once the channels are open makes the others load it. Recorded in the evidence as
  * "workaround applied". Sent through the capability layer, so it works on the adapter build as well.
  */
 export async function reannounceAvatars(clients: Client[], evidence: Evidence, why: string) {
+  if (!avatarReannounceEnabled()) {
+    evidence.note(`workaround not applied: AVATAR_REANNOUNCE=0, the avatar announcement is not sent again after entry (${why})`);
+    return [];
+  }
   const sent: string[] = [];
   for (const c of clients) {
     const ok = await c.page

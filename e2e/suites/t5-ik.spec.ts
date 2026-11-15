@@ -23,6 +23,7 @@ import { runDir, type TestResult } from "../report/evidence";
 import { room, type MediaServer } from "../lib/fixtures";
 import type { Client } from "../clients/launch";
 import { enterRoom } from "../clients/enter";
+import { avatarReannounceEnabled } from "../clients/workarounds";
 import * as input from "../clients/input";
 import { playTimeline, takeApplied, type Timeline } from "../clients/motion";
 import { hideAvatarsExcept, observerPlace, placeRig, sceneLights, setNewSolver, type Framing } from "../clients/stage";
@@ -185,7 +186,7 @@ async function ensureObserversSeeSubject(evidence: Evidence, s: Session, hubId: 
   let reentered = false;
   let subjectReentered = false;
   for (let attempt = 1; attempt <= 8; attempt++) {
-    await s.subject.page.evaluate(() => (window as any).__e2eApi.announceAvatar());
+    if (avatarReannounceEnabled()) await s.subject.page.evaluate(() => (window as any).__e2eApi.announceAvatar());
     await s.subject.page.waitForTimeout(3000);
     const before = await Promise.all(SOLVERS.map(k => sees(s.observers[k])));
     await s.subject.page.waitForTimeout(600);

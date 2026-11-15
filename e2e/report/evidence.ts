@@ -258,6 +258,8 @@ export async function writeRunInfo() {
       block: mediaBlock(),
       liveKit: activeLiveKitBlock(),
       liveKitBeforeRun: process.env.E2E_LIVEKIT_BEFORE ?? null,
+      // AVATAR_REANNOUNCE=0 turns the avatar re-announce workaround off in every test
+      avatarReannounceWorkaround: process.env.AVATAR_REANNOUNCE === "0" ? "off" : "on",
       serverSettings: Object.fromEntries(rows.split("\n").filter(Boolean).map(r => r.split("\t")))
     };
   } catch (e) {
