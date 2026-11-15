@@ -31,6 +31,8 @@ export type EnterOptions = {
   enterMuted?: boolean;
   /** Extra query string, e.g. "?force_tcp" */
   query?: string;
+  /** The page already shows the room's lobby (opened by the test): Join Room is pressed there without loading the page again */
+  alreadyOpen?: boolean;
   timeout?: number;
 };
 
@@ -45,7 +47,7 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const t0 = Date.now();
   const since = () => Date.now() - t0;
 
-  await page.goto(client.roomUrl(hubId, opts.query), { waitUntil: "domcontentloaded", timeout: 120_000 });
+  if (!opts.alreadyOpen) await page.goto(client.roomUrl(hubId, opts.query), { waitUntil: "domcontentloaded", timeout: 120_000 });
   const load = since();
   const join = page.getByRole("button", { name: "Join Room" });
   await join.waitFor({ state: "visible", timeout });

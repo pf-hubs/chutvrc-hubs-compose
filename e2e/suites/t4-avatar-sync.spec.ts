@@ -452,8 +452,29 @@ async function lateJoin(evidence: Evidence, server: MediaServer) {
   const ida = await idOf(a);
   await a.page.waitForTimeout(5000);
   const bView = await avatarState(b.page, ida).catch(e => ({ error: String(e) }));
+  const idb = await idOf(b);
+  // C first waits in the lobby for longer than one 5 s avatar repeat: A and B must not draw it before it enters
+  await c.page.goto(c.roomUrl(hub.hubId), { waitUntil: "domcontentloaded", timeout: 120_000 });
+  await c.page.getByRole("button", { name: "Join Room" }).waitFor({ state: "visible", timeout: 240_000 });
+  await c.page.waitForTimeout(8000);
+  const cLobby = await c.page.evaluate(() => (window as any).__e2eApi?.session?.() ?? null).catch(e => ({ error: String(e) }));
+  const lobby = { A: await readPeers(a.page), B: await readPeers(b.page) };
+  await evidence.screenshot(c, "C-in-lobby");
+  await evidence.screenshot(a, "A-while-C-in-lobby");
+  await evidence.check("C, waiting in the lobby, is not drawn by A or B before it enters", "A5", async () => {
+    const extraA = [...new Set([...lobby.A.models, ...lobby.A.poses])].filter(id => id !== idb);
+    const extraB = [...new Set([...lobby.B.models, ...lobby.B.poses])].filter(id => id !== ida);
+    return {
+      ok: extraA.length === 0 && extraB.length === 0,
+      summary:
+        `after 8 s in the lobby: A holds ${extraA.length} other model or pose besides B's (models ${lobby.A.models.length}, poses ${lobby.A.poses.length}), ` +
+        `B holds ${extraB.length} besides A's (models ${lobby.B.models.length}, poses ${lobby.B.poses.length}); ` +
+        `C in the lobby: ${cLobby && !("error" in cLobby) ? `connected ${cLobby.isConnected}, client id ${cLobby.clientId || "none"}` : "no session"}`,
+      data: { lobby, cLobby, extraA, extraB }
+    };
+  });
   const t0 = Date.now();
-  await enterRoom(c, hub.hubId, { displayName: c.name });
+  await enterRoom(c, hub.hubId, { displayName: c.name, alreadyOpen: true });
   const enteredAt = Date.now();
   // From C's entry: when it first holds A's pose and A's model
   let poseAt: number | null = null;
