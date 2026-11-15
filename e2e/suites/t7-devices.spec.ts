@@ -351,7 +351,7 @@ async function androidAndDesk(evidence: Evidence, server: MediaServer) {
       await p.page.waitForTimeout(1000);
       evidence.note(`the phone's microphone was left off after the mute check; Voice tapped once more: isMicEnabled ${(await readSession(p.page)).micEnabled}`);
     }
-    const ok = before.enabled === true && muted.enabled === false && muted.heard.ratio <= PILOT_SILENT && muted.button === "muted" && on.enabled === true && heardBy(on.heard) && on.button === "on";
+    const ok = before.enabled === true && before.button === "on" && muted.enabled === false && muted.heard.ratio <= PILOT_SILENT && muted.button === "muted" && on.enabled === true && heardBy(on.heard) && on.button === "on";
     return {
       ok,
       summary: `before: button ${before.button}, isMicEnabled ${before.enabled}; muted: button ${muted.button}, isMicEnabled ${muted.enabled}, observer pilot ${muted.heard.ratio}; unmuted: button ${on.button}, isMicEnabled ${on.enabled}, observer pilot ${on.heard.ratio}`,
@@ -693,10 +693,16 @@ async function poorNetwork(evidence: Evidence, server: MediaServer) {
     const watch = await stopPilotWatch(a.page, "blackout");
     const audioBack = audioGap(watch, restoredAt - watch.startedAt);
     const idNow = await idOf(n);
+    // Poses can come back later than the voice (the data channel's retransmission timer backs off during the
+    // blackout); the time until A's copy advances again is measured, up to 30 s after the link came back
     const p0 = await readPose(a, idNow);
-    await input.walk(n.page, "w", 1200);
-    const p1 = await readPose(a, idNow);
-    const posesResume = !!p0 && !!p1 && p1.seq !== p0.seq;
+    const resumed = await waitUntil(async () => {
+      const p = await readPose(a, idNow);
+      return !!p && !!p0 && p.seq !== p0.seq ? p : null;
+    }, Math.max(1000, 30_000 - (Date.now() - restoredAt)), 250);
+    const p1 = resumed.value ?? (await readPose(a, idNow));
+    const posesBackMs = resumed.value ? Date.now() - restoredAt - 0 : null;
+    const posesResume = !!resumed.value;
     const nHearsA = await hears(n, a, 4000);
     const stats = linkStatistics();
     evidence.saveText("link-blackout.txt", stats, "tc statistics after the blackout");
@@ -705,7 +711,7 @@ async function poorNetwork(evidence: Evidence, server: MediaServer) {
       ok: !!back.value && audioBack.heardAfterMs !== null && posesResume && nHearsA.heard,
       summary:
         `C noticed the outage: ${noticed.size > 0}; connected again ${back.value ? `${(back.ms / 1000).toFixed(1)} s after the link came back (client id ${idNow === idn ? "unchanged" : "new"})` : "never (90 s)"}; ` +
-        `A hears C again ${audioBack.heardAfterMs === null ? "never" : `after ${audioBack.heardAfterMs} ms`}; C's poses at A ${posesResume ? "advance" : "do not advance"}; C hears A: ${nHearsA.text}`,
+        `A hears C again ${audioBack.heardAfterMs === null ? "never" : `after ${audioBack.heardAfterMs} ms`}; C's poses at A ${posesResume ? `advance again (seen ${((posesBackMs ?? 0) / 1000).toFixed(1)} s after the link came back)` : "do not advance within 30 s"}; C hears A: ${nHearsA.text}`,
       data: { back: back.value, watch: { detections: watch.detections.length, trackChanges: watch.trackChanges }, audioBack, p0, p1 }
     };
   });
@@ -937,7 +943,7 @@ async function mixedRoom(evidence: Evidence, server: MediaServer, withBots: bool
     const made = mosaicVideo(tiles, evidence.file("mosaic.mp4"), work, { title: "T7.7 mixed room" });
     fs.rmSync(work, { recursive: true, force: true });
     evidence.addFile("mosaic.mp4", "video", "every client's video side by side on one time line (no sound)");
-    return { ok: true, summary: `${made.seconds} s, ${made.cols} x ${made.rows} tiles; ${made.tiles.filter(t => !t.video).map(t => t.label).join(", ") || "every tile"} without video`, data: made };
+    return { ok: true, summary: `${made.seconds} s, ${made.cols} x ${made.rows} tiles; without video: ${made.tiles.filter(t => !t.video).map(t => t.label).join(", ") || "none"}`, data: made };
   }, 30 * 60_000);
 }
 

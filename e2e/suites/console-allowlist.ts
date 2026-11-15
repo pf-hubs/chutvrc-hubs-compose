@@ -5,13 +5,19 @@ import type { AllowEntry } from "../probes/errors";
 
 export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
   {
+    pattern: /^(net::ERR_NO_BUFFER_SPACE (GET|POST|HEAD) |Failed to load resource: net::ERR_NO_BUFFER_SPACE)/,
+    types: ["requestfailed", "error"],
+    reason:
+      "a Windows socket error of this PC (no buffer space for a new socket) while many browsers run, seen in T5 as well; the environment, not the client (the request is the page's own, and the test's checks show what it cost)"
+  },
+  {
     pattern: /(^Connecting to 'https:\/\/github\.com\/' violates the following Content Security Policy directive: "connect-src|^csp HEAD https:\/\/github\.com\/$)/,
     types: ["error", "requestfailed"],
     reason:
       "T6.4, a media URL on raw.githubusercontent.com: before loading, the client asks whether the URL's origin is a Hubs server with a HEAD request through the CORS proxy (media-url-utils.js isHubsServer); the proxy passes on that origin's redirect to https://github.com/, which the page's content security policy blocks, so the answer is \"not a Hubs server\", the right one. Upstream code, unchanged since develop; the media loads (T6.4)"
   },
   {
-    pattern: /^entity registered with system despite being removed$/,
+    pattern: /^entity registered with system despite being removed /,
     types: ["error"],
     reason:
       "networked-aframe's own guard (components/networked.js, with the comment \"TODO: Find out why tick is still being called\"): logged when a networked object is removed between two frames of its sync loop; the removal itself completes (T6.3); library code, not changed by this work"
@@ -41,7 +47,7 @@ export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
       "WebKit (IOS profile) reports the ResizeObserver loop notice as an uncaught error without an error object (the harness names it from the page's error event); the specification makes it a notice that observations were deferred to the next frame, not a failure (TRIALS.md, trial c)"
   },
   {
-    pattern: /^InvalidStateError: The object is in an invalid state\.$/,
+    pattern: /^InvalidStateError: The object is in an invalid state\. /,
     types: ["error"],
     reason:
       "WebKit's wording (IOS profile) of Chromium's \"Failed to execute 'send' on 'RTCDataChannel'\" (the [e2e] send watch names the channel next to it): sends on a data channel that is still connecting; whether the channel ever opened is judged by the grids (known failure 21 when it does not)"
@@ -138,3 +144,7 @@ export const CONTAINER_CERTIFICATE: AllowEntry[] = [
       "Playwright's Chromium 159 in the netclient container blocks unload handlers by default (Chrome's unload deprecation); a handler in the client's store bundle is refused there. Edge 157 on this PC does not block it yet; noted for real Chrome in BASELINE.md"
   }
 ];
+
+// The container's messages concern the environment of whichever test runs a client there, so the
+// whole-run scan (report/run-scans.ts) takes them as well
+CONSOLE_ALLOW_LIST.push(...CONTAINER_CERTIFICATE);

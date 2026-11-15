@@ -405,8 +405,11 @@ export function watch(context: BrowserContext, page: Page): { log: LogEntry[]; h
   // WebKit hands some uncaught errors to Playwright without any text; the page's own error listener (COMMON_INIT)
   // logs their message, which is copied onto the empty page error that comes just before or after it
   const NAMED = "[e2e] window error without an error object: ";
+  // Access tokens in URLs (LiveKit's signal connection carries one, which names the project's API key) are
+  // not kept in the logs and the evidence made from them
+  const redact = (s: string | undefined) => s?.replace(/((?:access_)?token=)[A-Za-z0-9._~-]{16,}/g, "$1<redacted>");
   page.on("console", msg => {
-    const entry: LogEntry = { t: Date.now() - t0, type: msg.type(), text: msg.text(), url: msg.location().url };
+    const entry: LogEntry = { t: Date.now() - t0, type: msg.type(), text: redact(msg.text())!, url: redact(msg.location().url) };
     log.push(entry);
     if (entry.text.startsWith(NAMED)) {
       const blank = [...log].reverse().find(e => e.type === "pageerror" && !e.text && entry.t - e.t < 500);
@@ -419,10 +422,10 @@ export function watch(context: BrowserContext, page: Page): { log: LogEntry[]; h
       const named = [...log].reverse().find(e => e.text.startsWith(NAMED) && Date.now() - t0 - e.t < 500);
       text = named ? named.text.slice(NAMED.length) : "";
     }
-    log.push({ t: Date.now() - t0, type: "pageerror", text });
+    log.push({ t: Date.now() - t0, type: "pageerror", text: redact(text)! });
   });
   context.on("requestfailed", req =>
-    log.push({ t: Date.now() - t0, type: "requestfailed", text: `${req.failure()?.errorText ?? "failed"} ${req.method()}`, url: req.url() })
+    log.push({ t: Date.now() - t0, type: "requestfailed", text: `${req.failure()?.errorText ?? "failed"} ${req.method()}`, url: redact(req.url()) })
   );
   context.on("request", req => {
     try {
