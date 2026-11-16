@@ -91,6 +91,32 @@ const near = (a: number | null | undefined, b: number | null | undefined, tol: n
 const fmt = (v: number | null | undefined, d = 3) => (typeof v === "number" ? v.toFixed(d) : "–");
 const stateText = (s: BodyState) => `holds ${fmt(s.announced)} m, model eye ${fmt(s.modelEye)} m, ratio ${fmt(s.modelRatio, 4)}, root scale ${fmt(s.rootScale, 4)}, ${s.solver ?? "old"} solver`;
 
+/**
+ * Waits until the observer draws `id`'s model with its eye height; when it does not within 15 s, the observer
+ * enters the room again once (logged workaround for the one-way failure on Dialog, BASELINE.md #21, #34), with
+ * what it held before saved
+ */
+async function observerHolds(evidence: Evidence, o: Client, subject: Client, id: string, hubId: string, when: string) {
+  const look = () =>
+    waitUntil(async () => {
+      const s = await bodyState(o.page, id);
+      return s.eid !== null && s.announced !== null ? s : null;
+    }, 15_000);
+  const first = await look();
+  if (first.value) {
+    evidence.note(`${when}: ${o.name} drew A's model with its eye height after ${first.ms} ms`);
+    return first.value;
+  }
+  const peers = await readPeers(o.page);
+  const pose = await o.page.evaluate(i => (window as any).APP.avatarPoses.get(i)?.seq ?? null, id);
+  evidence.saveJson(`observer-missed-${when.replace(/\W+/g, "-")}.json`, { peers, pose, subjectLog: subject.log.filter(e => /^Avatar of /.test(e.text)).slice(-20), observerLog: o.log.filter(e => /^Avatar of /.test(e.text)).slice(-20) }, `${o.name} did not draw A ${when}: the peers it held, A's pose, both pages' avatar lines`);
+  evidence.note(`${when}: ${o.name} held no model of A within 15 s (models for ${peers.models.length} peer(s), poses for ${peers.poses.length}, A's pose ${pose === null ? "never received" : `seq ${pose}`}); workaround applied: ${o.name} enters the room again (known one-way failure on Dialog, BASELINE.md #21, #34)`);
+  await enterRoom(o, hubId, { displayName: o.name, preferences: NEW_SOLVER });
+  const second = await look();
+  evidence.note(`${when}, second attempt: ${o.name} ${second.value ? `drew A after ${second.ms} ms` : "still did not draw A"}`);
+  return second.value;
+}
+
 // ---------- T5a ----------
 
 async function calibrationFlow(evidence: Evidence, server: MediaServer) {
@@ -189,8 +215,9 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
     }
   });
   await holdStand(q.page, 2500);
-  // The page was loaded again: a new client id
+  // The page was loaded again: a new client id, which the observer has to draw before its view is read
   qid = await idOf(q);
+  await observerHolds(evidence, o, q, qid, hub.hubId, "after A's second entry");
   await evidence.check("The second entry skips the form and captures again", "V6", async () => {
     const c = captureSince(q, logFrom2);
     return {

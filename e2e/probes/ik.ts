@@ -175,6 +175,8 @@ export type IkInfo = {
   restAnkle: { left: number | null; right: number | null };
   restEyeHeight: number | null;
   skeletonBones: number;
+  /** Upper arm plus forearm at the model's own size (metres, the mean of both sides); null without arm bones */
+  armLength: number | null;
 };
 
 /**
@@ -273,7 +275,12 @@ export const IK_PROBE = `(() => {
         eid, rigSource: rig.source, isFlippedY: rig.isFlippedY, forward, bones: Object.keys(restPos),
         restAnkle: { left: restPos.leftFoot ? r(restPos.leftFoot[1], 4) : null, right: restPos.rightFoot ? r(restPos.rightFoot[1], 4) : null },
         restEyeHeight: eyes.length ? r(eyes.reduce((a, n) => a + restPos[n][1], 0) / eyes.length, 4) : null,
-        skeletonBones: skeleton.size
+        skeletonBones: skeleton.size,
+        armLength: (() => {
+          const arm = side => restPos[side + "UpperArm"] && restPos[side + "LowerArm"] && restPos[side + "Hand"] ? M.dist(restPos[side + "UpperArm"], restPos[side + "LowerArm"]) + M.dist(restPos[side + "LowerArm"], restPos[side + "Hand"]) : null;
+          const v = [arm("left"), arm("right")].filter(x => x !== null);
+          return v.length ? r(v.reduce((a, x) => a + x, 0) / v.length, 4) : null;
+        })()
       }
     };
   };

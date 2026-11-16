@@ -119,7 +119,17 @@ export type MotionResult = {
   /** How far the subject's rig moved and turned (desktop walk, thumbstick, snap turns) */
   subject: { travelled: number; turnedDeg: number };
   video: string | null;
+  /**
+   * The hand rule's allowance for this motion, cm: in "Fit the avatar to me" the drawn arm is the model's arm
+   * times the ratio, so at full reach the hand falls short of (or beyond) the controller by up to
+   * |1 - ratio| x the model's arm length; reaching motions of that fit may be worse than the old solver by that
+   * much (plan decision); 0 otherwise
+   */
+  handAllowanceCm?: number;
 };
+
+/** The motions that reach to the arm's full length */
+const REACHING: MotionId[] = ["m05"];
 
 export type T5Record = {
   avatar: T5Avatar;
@@ -569,7 +579,9 @@ const pass = (r: MotionResult) => ({
   hand:
     r.mode !== "vr" || r.ik.old.handErrMean === null || r.ik.new.handErrMean === null
       ? null
-      : r.ik.new.handErrMean <= r.ik.old.handErrMean * HAND_TOLERANCE.factor + HAND_TOLERANCE.cm,
+      : r.handAllowanceCm
+        ? r.ik.new.handErrMean <= r.ik.old.handErrMean + r.handAllowanceCm
+        : r.ik.new.handErrMean <= r.ik.old.handErrMean * HAND_TOLERANCE.factor + HAND_TOLERANCE.cm,
   /** VR (F4): the drawn eyes within 2 cm of the headset on average, the knee slack taken into account */
   eyes: r.mode !== "vr" || r.ik.new.eyeErrSlackMean === null ? null : r.ik.new.eyeErrSlackMean < EYE_LIMIT_CM,
   /** F4: no sole more than 1 cm under the floor; standing still, both within 1 cm of it */
@@ -660,14 +672,22 @@ async function ikTest(evidence: Evidence, server: MediaServer, avatar: T5Avatar,
     };
   });
   if (mode === "vr") {
-    await evidence.check("New solver: hand error no worse than the old solver's", "V6", async () => {
+    // Reaching in "Fit the avatar to me": the arm-length difference is allowed (plan decision, FIXES.md F4)
+    const armLength = info.new?.armLength ?? null;
+    for (const r of results) {
+      const ratio = r.ik.new.modelRatio;
+      r.handAllowanceCm = variant.fit === "avatarToPlayer" && REACHING.includes(r.id) && armLength !== null && ratio !== null ? +(Math.abs(1 - ratio) * armLength * 100).toFixed(2) : 0;
+    }
+    await evidence.check("New solver: hand error no worse than the old solver's (reaching in \"Fit the avatar to me\": plus the arm-length difference)", "V6", async () => {
       const judged = results.filter(r => pass(r).hand !== null);
-      const rows = judged.map(r => `${r.id} ${n(r.ik.old.handErrMean)} → ${n(r.ik.new.handErrMean)} cm${pass(r).hand ? "" : " (worse)"}`);
+      const rows = judged.map(
+        r => `${r.id} ${n(r.ik.old.handErrMean)} → ${n(r.ik.new.handErrMean)} cm${r.handAllowanceCm ? ` (allowed old + ${n(r.handAllowanceCm, 2)} = ${n((r.ik.old.handErrMean ?? 0) + r.handAllowanceCm)} cm, |1 - ratio| x arm ${armLength} m)` : ""}${pass(r).hand ? "" : " (worse)"}`
+      );
       const ratio = results.find(r => r.ik.new.modelRatio !== null)?.ik.new.modelRatio ?? null;
       return {
         ok: judged.length > 0 && judged.every(r => pass(r).hand),
         summary: `mean distance from hand bone to controller, old → new: ${rows.join(", ")} (no worse: within 10% and 5 mm); the new solver draws the model at ${ratio ?? "?"} of its size`,
-        data: judged.map(r => ({ id: r.id, old: { mean: r.ik.old.handErrMean, max: r.ik.old.handErrMax, rotMean: r.ik.old.handRotErrMean }, new: { mean: r.ik.new.handErrMean, max: r.ik.new.handErrMax, rotMean: r.ik.new.handRotErrMean, modelRatio: r.ik.new.modelRatio } }))
+        data: judged.map(r => ({ id: r.id, old: { mean: r.ik.old.handErrMean, max: r.ik.old.handErrMax, rotMean: r.ik.old.handRotErrMean }, new: { mean: r.ik.new.handErrMean, max: r.ik.new.handErrMax, rotMean: r.ik.new.handRotErrMean, modelRatio: r.ik.new.modelRatio }, allowanceCm: r.handAllowanceCm, armLength }))
       };
     });
     await evidence.check(`New solver: eyes on the headset, under ${EYE_LIMIT_CM} cm with the knee slack taken into account (raw distance beside it)`, "V6", async () => {
