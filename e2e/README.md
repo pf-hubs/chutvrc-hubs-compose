@@ -115,7 +115,7 @@ Before the tests, `suites/global-setup.ts` stops the run when `PRIVATE_NETWORK_I
 
 Each run writes `evidence/<run-id>/`: `run.json` (commits of the five repositories, browser versions, media server block, the reticulum clock), and per test a folder with named screenshots, a video per client, console logs, saved data, the OBS recording when OBS is reachable, and `result.json`. `report.html` in the run folder names the hubs branch, commit and client API in its header, and lists every test with its status (OK, NG, skipped, known limitation, invalid, not applicable), the checks with their numbers and the checklist items they cover, thumbnails and links. "Not applicable" is a check that needs what the tested build does not have, such as the packet log on `develop`; it counts neither way.
 
-`BASELINE.md` records which of the target's failures were already on `develop` (plan step 5).
+`BASELINE.md` records which of the target's failures were already on `develop` (plan step 5). `FIXES.md` records the tests of the fixes before and after; `REGRESSION.md` the whole suite after the fixes against the full run before them (`npx tsx trials/compare-runs.ts <before run> <after run>` makes its tables).
 
 ### Device profiles (T7)
 
