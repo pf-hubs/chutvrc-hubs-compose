@@ -92,29 +92,52 @@ const fmt = (v: number | null | undefined, d = 3) => (typeof v === "number" ? v.
 const stateText = (s: BodyState) => `holds ${fmt(s.announced)} m, model eye ${fmt(s.modelEye)} m, ratio ${fmt(s.modelRatio, 4)}, root scale ${fmt(s.rootScale, 4)}, ${s.solver ?? "old"} solver`;
 
 /**
- * Waits until the observer draws `id`'s model with its eye height; when it does not within 15 s, the observer
- * enters the room again once (logged workaround for the one-way failure on Dialog, BASELINE.md #21, #34), with
- * what it held before saved
+ * Waits until every observer draws the subject's model with its eye height and returns the subject's client
+ * id. When one does not within 15 s, what each held is saved and a logged workaround follows (the one-way
+ * failures on Dialog, BASELINE.md #21 and #34): when no observer receives the subject's pose, the subject's
+ * sending failed and the subject enters again (`reenter`); otherwise the observers that miss it enter again.
+ * At most twice.
  */
-async function observerHolds(evidence: Evidence, o: Client, subject: Client, id: string, hubId: string, when: string) {
-  const look = () =>
-    waitUntil(async () => {
-      const s = await bodyState(o.page, id);
-      return s.eid !== null && s.announced !== null ? s : null;
-    }, 15_000);
-  const first = await look();
-  if (first.value) {
-    evidence.note(`${when}: ${o.name} drew A's model with its eye height after ${first.ms} ms`);
-    return first.value;
+async function subjectReached(evidence: Evidence, observers: Client[], subject: Client, reenter: () => Promise<unknown>, hubId: string, when: string): Promise<string> {
+  let id = await idOf(subject);
+  for (let attempt = 1; ; attempt++) {
+    const results = await Promise.all(
+      observers.map(o =>
+        waitUntil(async () => {
+          const s = await bodyState(o.page, id);
+          return s.eid !== null && s.announced !== null ? s : null;
+        }, 15_000)
+      )
+    );
+    const missing = observers.filter((_, i) => !results[i].value);
+    if (!missing.length) {
+      evidence.note(`${when}: ${observers.map((o, i) => `${o.name} drew A's model with its eye height after ${results[i].ms} ms`).join("; ")}${attempt > 1 ? ` (attempt ${attempt})` : ""}`);
+      return id;
+    }
+    const held = await Promise.all(
+      missing.map(async o => ({ name: o.name, peers: await readPeers(o.page), pose: await o.page.evaluate(i => (window as any).APP.avatarPoses.get(i)?.seq ?? null, id) }))
+    );
+    const sends = await subject.page.evaluate(() => (window as any).__e2eConnections?.summary?.() ?? null).catch(() => null);
+    evidence.saveJson(
+      `observers-missed-${when.replace(/\W+/g, "-")}-${attempt}.json`,
+      { held, sends, subjectLog: subject.log.filter(e => /^Avatar of /.test(e.text)).slice(-30), observerLogs: Object.fromEntries(missing.map(o => [o.name, o.log.filter(e => /^Avatar of /.test(e.text)).slice(-30)])) },
+      `${when}, attempt ${attempt}: the observers that did not draw A, what they held, both pages' avatar lines`
+    );
+    const nobodyHasPose = held.every(h => h.pose === null) && missing.length === observers.length;
+    const text = held.map(h => `${h.name} held models for ${h.peers.models.length} peer(s), poses for ${h.peers.poses.length}, A's pose ${h.pose === null ? "never received" : `seq ${h.pose}`}`).join("; ");
+    if (attempt > 2) {
+      evidence.note(`${when}: still not drawn after the workarounds: ${text}`);
+      return id;
+    }
+    if (nobodyHasPose) {
+      evidence.note(`${when}: ${text}; no observer receives A at all (A's sending failed, known failure #21): workaround applied, A enters the room again`);
+      await reenter();
+      id = await idOf(subject);
+    } else {
+      evidence.note(`${when}: ${text}; workaround applied: ${missing.map(o => o.name).join(", ")} enter(s) the room again (known one-way failure on Dialog, #21, #34)`);
+      for (const o of missing) await enterRoom(o, hubId, { displayName: o.name, preferences: NEW_SOLVER });
+    }
   }
-  const peers = await readPeers(o.page);
-  const pose = await o.page.evaluate(i => (window as any).APP.avatarPoses.get(i)?.seq ?? null, id);
-  evidence.saveJson(`observer-missed-${when.replace(/\W+/g, "-")}.json`, { peers, pose, subjectLog: subject.log.filter(e => /^Avatar of /.test(e.text)).slice(-20), observerLog: o.log.filter(e => /^Avatar of /.test(e.text)).slice(-20) }, `${o.name} did not draw A ${when}: the peers it held, A's pose, both pages' avatar lines`);
-  evidence.note(`${when}: ${o.name} held no model of A within 15 s (models for ${peers.models.length} peer(s), poses for ${peers.poses.length}, A's pose ${pose === null ? "never received" : `seq ${pose}`}); workaround applied: ${o.name} enters the room again (known one-way failure on Dialog, BASELINE.md #21, #34)`);
-  await enterRoom(o, hubId, { displayName: o.name, preferences: NEW_SOLVER });
-  const second = await look();
-  evidence.note(`${when}, second attempt: ${o.name} ${second.value ? `drew A after ${second.ms} ms` : "still did not draw A"}`);
-  return second.value;
 }
 
 // ---------- T5a ----------
@@ -216,8 +239,10 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
   });
   await holdStand(q.page, 2500);
   // The page was loaded again: a new client id, which the observer has to draw before its view is read
-  qid = await idOf(q);
-  await observerHolds(evidence, o, q, qid, hub.hubId, "after A's second entry");
+  qid = await subjectReached(evidence, [o], q, async () => {
+    await enterRoom(q, hub.hubId, { displayName: q.name, preferences: NEW_SOLVER, beforeEnter: async page => { await markXrSessions(page); await holdStand(page, 200); } });
+    await holdStand(q.page, 2500);
+  }, hub.hubId, "after A's second entry");
   await evidence.check("The second entry skips the form and captures again", "V6", async () => {
     const c = captureSince(q, logFrom2);
     return {
@@ -335,15 +360,18 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
   ]);
   evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: new solver, ${HEIGHT_CM} cm, standing, "Fit the avatar to me", ${AVATARS.rpm.describe}; B and C both with the new solver; C enters after A has captured its height`);
   await enterRoom(b, hub.hubId, { displayName: b.name, preferences: NEW_SOLVER });
-  await enterRoom(q, hub.hubId, {
-    displayName: q.name,
-    avatarUrl: avatarUrl("rpm"),
-    preferences: NEW_SOLVER,
-    calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
-    beforeEnter: page => holdStand(page, 200)
-  });
-  await holdStand(q.page, 3000);
-  const qid = await idOf(q);
+  const enterQ = async () => {
+    await enterRoom(q, hub.hubId, {
+      displayName: q.name,
+      avatarUrl: avatarUrl("rpm"),
+      preferences: NEW_SOLVER,
+      calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
+      beforeEnter: page => holdStand(page, 200)
+    });
+    await holdStand(q.page, 3000);
+  };
+  await enterQ();
+  let qid = await idOf(q);
   const t0 = Date.now();
   await enterRoom(c, hub.hubId, { displayName: c.name, preferences: NEW_SOLVER });
   const lateModel = await waitUntil(async () => {
@@ -351,26 +379,11 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
     return s.eid !== null && s.announced !== null && s.modelRatio !== null ? s : null;
   }, 20_000);
   evidence.note(`C entered ${((Date.now() - t0) / 1000).toFixed(1)} s after A had captured (the entry itself included); C drew A's model with its eye height ${lateModel.value ? `${lateModel.ms} ms after its entry` : "not within 20 s"}`);
-  let late = lateModel.value;
-  if (!late) {
-    // Diagnose, then the logged workaround for the one-way failure of a joint or late join on Dialog (BASELINE.md #21, #34)
-    const peers = await readPeers(c.page);
-    const poseOfA = await c.page.evaluate(id => (window as any).APP.avatarPoses.get(id)?.seq ?? null, qid);
-    const bSees = await bodyState(b.page, qid);
-    evidence.saveJson("late-joiner-first-attempt.json", { peers, poseOfA, bSees, connections: await liveConnections(c.page).catch(e => String(e)) }, "the late joiner's first attempt: the peers it holds models and poses for, A's pose sequence, B's view of A");
-    evidence.note(
-      `first attempt: C held models for ${peers.models.length} peer(s), poses for ${peers.poses.length}, A's pose ${poseOfA === null ? "never received" : `received (seq ${poseOfA})`}, ` +
-        `B meanwhile ${stateText(bSees)}; workaround applied: C enters the room again (known one-way failure on Dialog, BASELINE.md #21, #34)`
-    );
-    await enterRoom(c, hub.hubId, { displayName: c.name, preferences: NEW_SOLVER });
-    late = (
-      await waitUntil(async () => {
-        const s = await bodyState(c.page, qid);
-        return s.eid !== null && s.announced !== null && s.modelRatio !== null ? s : null;
-      }, 20_000)
-    ).value;
-    evidence.note(`second attempt: C ${late ? "drew A's model with its eye height" : "still did not draw A's model"}`);
-  }
+  if (!lateModel.value) evidence.note("C (the late joiner) did not draw A within 20 s; see below");
+  // Both observers must draw A before they are compared; one that does not enters again once (logged)
+  qid = await subjectReached(evidence, [b, c], q, enterQ, hub.hubId, "B (in the room before A) and C (late)");
+  const late = (await bodyState(c.page, qid)).eid !== null;
+  const early = (await bodyState(b.page, qid)).eid !== null;
   for (const k of [b, c]) {
     const place = observerPlace(FRAMING);
     await placeRig(k.page, place.x + (k === c ? 0.4 : 0), place.z, place.yawDeg, place.pitchDeg);
@@ -393,7 +406,7 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
     const { b: sb, c: sc } = before.states;
     const eyeB = before.drawn.b.eyeHeightMean, eyeC = before.drawn.c.eyeHeightMean;
     const ok =
-      !!late &&
+      !!late && !!early &&
       sb.modelRatio !== null && sc.modelRatio !== null &&
       Math.abs(sb.modelRatio - sc.modelRatio) <= SIZE_AGREEMENT * sb.modelRatio &&
       eyeB !== null && eyeC !== null && Math.abs(eyeB - eyeC) <= SIZE_AGREEMENT * eyeB &&
@@ -403,7 +416,7 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
       summary:
         `A announces ${fmt(before.own.announced)} m; B ${stateText(sb)}; C (late) ${stateText(sc)}; ratios differ by ${sb.modelRatio && sc.modelRatio ? ((Math.abs(sb.modelRatio - sc.modelRatio) / sb.modelRatio) * 100).toFixed(3) : "?"}%; ` +
         `drawn eyes over the floor: B ${fmt(eyeB)} m, C ${fmt(eyeC)} m (the announced height less the knee slack ${fmt(KNEE_SLACK * (sb.modelRatio ?? 1))} m: ${fmt((before.own.announced ?? 0) - KNEE_SLACK * (sb.modelRatio ?? 1))}); eyes to headset with the slack: B ${fmt(before.drawn.b.eyeErrSlackMean, 2)} cm, C ${fmt(before.drawn.c.eyeErrSlackMean, 2)} cm (raw ${fmt(before.drawn.b.eyeErrMean, 2)}, ${fmt(before.drawn.c.eyeErrMean, 2)})`,
-      data: { lateModel, late, before }
+      data: { lateModel, late, early, before }
     };
   });
 
@@ -449,15 +462,18 @@ async function playerToAvatar(evidence: Evidence, server: MediaServer, avatar: A
   const url = avatarUrl(avatar);
   evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: new solver, ${HEIGHT_CM} cm, standing, "Fit me to the avatar", ${AVATARS[avatar].describe}; both clients signed in as the room's owner (to place and grab an object); C-new-solver a DESK observer`);
   await enterRoom(o, hub.hubId, { displayName: o.name, preferences: NEW_SOLVER });
-  await enterRoom(q, hub.hubId, {
-    displayName: q.name,
-    avatarUrl: url,
-    preferences: NEW_SOLVER,
-    calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "playerToAvatar" },
-    beforeEnter: page => holdStand(page, 200)
-  });
-  await holdStand(q.page, 3000);
-  const qid = await idOf(q);
+  const enterQ = async () => {
+    await enterRoom(q, hub.hubId, {
+      displayName: q.name,
+      avatarUrl: url,
+      preferences: NEW_SOLVER,
+      calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "playerToAvatar" },
+      beforeEnter: page => holdStand(page, 200)
+    });
+    await holdStand(q.page, 3000);
+  };
+  await enterQ();
+  const qid = await subjectReached(evidence, [o], q, enterQ, hub.hubId, "the observer, in the room before A");
   await frameRateCheck(evidence, [q, o]);
   const own = await ownView(q.page);
   const seen = await waitUntil(async () => {
@@ -625,6 +641,17 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
   await placeRig(d.page, place.x, place.z, place.yawDeg, place.pitchDeg);
   await hideAvatarsExcept(d, [idOld]);
   await holdStand(old.page, 1000);
+  // The old build announces its avatar once at entry, often on a channel still connecting (BASELINE.md #1; F2
+  // fixed it only in the new build): when B has no model for it, the old page announces again, logged. This is
+  // the old build's failure, so it is applied whatever AVATAR_REANNOUNCE says
+  const hasOld = await waitUntil(async () => ((await bodyState(d.page, idOld)).eid !== null ? true : null), 10_000);
+  if (!hasOld.value) {
+    const sent = await old.page.evaluate(() => !!(window as any).__e2eApi?.announceAvatar()).catch(() => false);
+    const after = await waitUntil(async () => ((await bodyState(d.page, idOld)).eid !== null ? true : null), 15_000);
+    evidence.note(
+      `B held no model of the old build's headset after 10 s (its sends on channels still connecting are in the console check); workaround applied: the old page announced its avatar again (${sent ? "sent" : "could not send"}); B ${after.value ? `drew it after ${after.ms} ms` : "still did not draw it"}`
+    );
+  }
   const oldState = await bodyState(d.page, idOld);
   const oldDrawn = await drawnFor(d, idOld, 2000);
   await evidence.screenshot(d, "new-solver-draws-old-build");

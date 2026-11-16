@@ -12,6 +12,9 @@ import { linkStatistics, shapeLink } from "../clients/network";
 import { reannounceAvatars } from "../clients/workarounds";
 import { CONTROL_HZ } from "../assets/media";
 import { drawsAvatar, readPeers, readSession } from "../probes/session";
+import { setAvatar } from "../probes/avatars";
+import { avatarUrl } from "../assets/avatars";
+import { enterRoom } from "../clients/enter";
 import { audioGap, heardPilot, startPilotWatch, stopPilotWatch } from "../probes/audio";
 import { readPose } from "../probes/poses";
 import { liveConnections, readConnections } from "../probes/connections";
@@ -229,6 +232,12 @@ for (const server of SERVERS) {
         avatar: await drawsAvatar(a.page, idb)
       });
 
+      const lookAt = async (id: string) => ({
+        aHearsB: await heardPilot(a.page, id, b.pilotHz, CONTROL_HZ, 3000),
+        bHearsA: await heardPilot(b.page, ida, a.pilotHz, CONTROL_HZ, 3000),
+        avatar: await drawsAvatar(a.page, id)
+      });
+
       const start = await look();
       await evidence.screenshot(a, "before-block");
       await evidence.check("Before: A hears B and draws B's avatar", "F4", async () => ({
@@ -239,35 +248,93 @@ for (const server of SERVERS) {
         data: start
       }));
 
+      /** Polls every 100 ms until A draws (or stops drawing) B's avatar: ms, or null within the limit */
+      const drawnWithin = async (id: string, want: boolean, ms: number) => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < ms) {
+          const d = await drawsAvatar(a.page, id);
+          if ((d.model && d.visible) === want) return Date.now() - t0;
+          await a.page.waitForTimeout(100);
+        }
+        return null;
+      };
+      let idbNow = idb;
       await evidence.check("A hides (blocks) B from People: B's voice and avatar disappear", "F4", async () => {
         await input.openPerson(a.page, b.name);
         await evidence.screenshot(a, "profile");
         await input.clickProfileButton(a.page, "Hide");
+        const goneMs = await drawnWithin(idb, false, 5000);
         await input.closeSidebar(a.page);
         await a.page.waitForTimeout(3000);
         const s = await look();
         await evidence.screenshot(a, "blocked");
         return {
-          ok: silent(s.aHearsB) && !(s.avatar.model && s.avatar.visible),
-          summary: `A hears B ${pilotText(s.aHearsB)}; B hears A ${pilotText(s.bHearsA)}; A draws B's avatar: model ${s.avatar.model}, visible ${s.avatar.visible}`,
-          data: s
+          ok: silent(s.aHearsB) && !(s.avatar.model && s.avatar.visible) && goneMs !== null && goneMs <= 1000,
+          summary: `the avatar ${goneMs === null ? "still drawn 5 s after Hide" : `gone ${goneMs} ms after Hide`}; 3 s later: A hears B ${pilotText(s.aHearsB)}; B hears A ${pilotText(s.bHearsA)}; A draws B's avatar: model ${s.avatar.model}, visible ${s.avatar.visible}`,
+          data: { s, goneMs }
+        };
+      });
+
+      await evidence.check("The hidden avatar stays gone: across the 5-second repeats and an avatar change", "F4", async () => {
+        const steps: { step: string; model: boolean; visible: boolean; heard: number }[] = [];
+        const note = async (step: string, id: string) => {
+          const d = await drawsAvatar(a.page, id);
+          const h = await heardPilot(a.page, id, b.pilotHz, CONTROL_HZ, 2000);
+          steps.push({ step, model: d.model, visible: d.visible, heard: h.ratio });
+        };
+        await a.page.waitForTimeout(6000);
+        await note("after 6 s (one repeat of the announcement)", idb);
+        await setAvatar(b, avatarUrl("vrm0"));
+        await a.page.waitForTimeout(4000);
+        await note("4 s after B changed its avatar", idb);
+        await input.faceTowards(a.page, { clientId: idb }).catch(() => null);
+        await evidence.screenshot(a, "blocked-after-avatar-change");
+        return {
+          ok: steps.every(x => !(x.model && x.visible) && x.heard <= 0.05),
+          summary: steps.map(x => `${x.step}: model ${x.model}, visible ${x.visible}, pilot ${x.heard}`).join("; "),
+          data: steps
         };
       });
 
       await evidence.check("A unhides (unblocks) B: B's voice and avatar return", "F4", async () => {
         await input.openPerson(a.page, b.name);
         await input.clickProfileButton(a.page, "Unhide");
+        const avatarMs = await drawnWithin(idbNow, true, 10_000);
         await input.closeSidebar(a.page);
         const back = await waitUntil(async () => {
-          const s = await look();
+          const s = await lookAt(idbNow);
           return heard(s.aHearsB) && s.avatar.model && s.avatar.visible ? s : null;
         }, 15_000, 1000);
-        const s = back.value ?? (await look());
+        const s = back.value ?? (await lookAt(idbNow));
         await evidence.screenshot(a, "unblocked");
         return {
-          ok: !!back.value,
-          summary: `${back.value ? `back after ${(back.ms / 1000).toFixed(1)} s` : "not back within 15 s"}: A hears B ${pilotText(s.aHearsB)}; B hears A ${pilotText(s.bHearsA)}; A draws B's avatar: model ${s.avatar.model}, visible ${s.avatar.visible}`,
-          data: s
+          ok: !!back.value && avatarMs !== null && avatarMs <= 1500,
+          summary: `the avatar ${avatarMs === null ? "not drawn within 10 s" : `drawn ${avatarMs} ms after Unhide`}; voice and avatar ${back.value ? `back after ${(back.ms / 1000).toFixed(1)} s` : "not back within 15 s"}: A hears B ${pilotText(s.aHearsB)}; B hears A ${pilotText(s.bHearsA)}; A draws B's avatar: model ${s.avatar.model}, visible ${s.avatar.visible}`,
+          data: { s, avatarMs }
+        };
+      });
+
+      await evidence.check("Hidden again, then B enters the room again (a new client id): does it stay hidden", "F4", async () => {
+        await input.openPerson(a.page, b.name);
+        await input.clickProfileButton(a.page, "Hide");
+        await input.closeSidebar(a.page);
+        const hiddenMs = await drawnWithin(idbNow, false, 5000);
+        const idBefore = idbNow;
+        await enterRoom(b, room(mainRoom(server)).hubId, { displayName: b.name });
+        idbNow = await idOf(b);
+        await a.page.waitForTimeout(6000);
+        const d = await drawsAvatar(a.page, idbNow);
+        const h = await heardPilot(a.page, idbNow, b.pilotHz, CONTROL_HZ, 2000);
+        await input.faceTowards(a.page, { clientId: idbNow }).catch(() => null);
+        await evidence.screenshot(a, "after-rejoin");
+        // Leave B shown for the kick: Unhide if the People list still offers it
+        await input.openPerson(a.page, b.name);
+        const unhide = await input.clickProfileButton(a.page, "Unhide").then(() => true).catch(() => false);
+        await input.closeSidebar(a.page).catch(() => {});
+        return {
+          ok: !(d.model && d.visible) && h.ratio <= 0.05,
+          summary: `hidden again (${hiddenMs === null ? "still drawn after 5 s" : `gone after ${hiddenMs} ms`}); B entered again with client id ${idbNow === idBefore ? "unchanged" : "new"}; 6 s later A draws B: model ${d.model}, visible ${d.visible}; A hears B: pilot ${h.ratio}; People then offered ${unhide ? "Unhide" : "no Unhide (B listed as not hidden)"}`,
+          data: { hiddenMs, d, h, unhide, idBefore, idAfter: idbNow }
         };
       });
 
@@ -277,7 +344,7 @@ for (const server of SERVERS) {
         const gone = await waitUntil(async () => {
           const [sb, peersA] = await Promise.all([readSession(b.page).catch(() => null), readPeers(a.page)]);
           const bInRoom = await b.page.evaluate(() => !!(window as any).AFRAME?.scenes?.[0]?.is("entered")).catch(() => false);
-          return !bInRoom && !sb?.isConnected && !peersA.poses.includes(idb) ? { sb, bInRoom, peersA } : null;
+          return !bInRoom && !sb?.isConnected && !peersA.poses.includes(idbNow) ? { sb, bInRoom, peersA } : null;
         }, 20_000, 1000);
         await evidence.screenshot(b, "kicked");
         await evidence.screenshot(a, "after-kick");
@@ -289,7 +356,7 @@ for (const server of SERVERS) {
           ok: !!gone.value,
           summary: gone.value
             ? `B left after ${(gone.ms / 1000).toFixed(1)} s (B connected ${sb?.isConnected}; A holds ${peersA.poses.length} pose(s))`
-            : `not all gone after 20 s: B's page ${bInRoom ? "still in the room" : `left the room ("${bScreen.split("\n")[0]}")`}; A's toolbar ${people}; B's media server session connected ${sb?.isConnected}; A still holds B's pose ${peersA.poses.includes(idb)} and draws its model ${peersA.models.includes(idb)}`,
+            : `not all gone after 20 s: B's page ${bInRoom ? "still in the room" : `left the room ("${bScreen.split("\n")[0]}")`}; A's toolbar ${people}; B's media server session connected ${sb?.isConnected}; A still holds B's pose ${peersA.poses.includes(idbNow)} and draws its model ${peersA.models.includes(idbNow)}`,
           data: { sb, peersA, bInRoom, bScreen, people }
         };
       });
