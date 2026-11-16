@@ -38,6 +38,7 @@ import { mosaicVideo } from "../report/mosaic";
 import { blockId, blockTitle, runsOn } from "./blocks";
 import { closingChecks, connectedCheck, enterAll, frameRateCheck, idOf, mainRoom, startClients, waitUntil, type Seat } from "./common";
 import { CONTAINER_CERTIFICATE, KNOWN_MIC_WISH_LOST } from "./console-allowlist";
+import { SCREEN_NEW_SOLVER, T7_NEW_SOLVER, screenSolverCheck } from "./f4-checks";
 
 const SERVERS = ["dialog", "livekit"] as const;
 /** Allowances for known failures these tests are not about, and for the netclient container (suites/console-allowlist.ts) */
@@ -63,9 +64,15 @@ const heardBy = (r: { ratio: number; controlRatio: number }) => r.ratio >= PILOT
  * Enters the clients together (plan 2.2), then lets a client whose sending failed at the joint join enter
  * again (logged workaround for known failures 3 and 21; the T7 tests are about the device profiles)
  */
-async function enterDevices(evidence: Evidence, clients: Client[], hubId: string) {
-  const timings = await enterAll(evidence, clients, hubId);
-  await reenterSilentSenders(clients, evidence, "so the test sees the device profile rather than the joint join", c => enterRoom(c, hubId, { displayName: c.name }));
+async function enterDevices(evidence: Evidence, clients: Client[], hubId: string, opts: { newSolver?: boolean } = {}) {
+  // T7_NEW_SOLVER=1 (T7.2, T7.3): every client with the new solver on and no height saved (suites/f4-checks.ts)
+  const preferences = opts.newSolver ? SCREEN_NEW_SOLVER : undefined;
+  if (opts.newSolver) evidence.note('every client enters with "Use the new avatar body solver (experimental)" on and no height saved (T7_NEW_SOLVER=1)');
+  const timings = await enterAll(evidence, clients, hubId, { preferences });
+  await reenterSilentSenders(clients, evidence, "so the test sees the device profile rather than the joint join", async c => {
+    const t = await enterRoom(c, hubId, { displayName: c.name, preferences });
+    timings[clients.indexOf(c)] = t;
+  });
   return timings;
 }
 
@@ -293,7 +300,7 @@ async function androidAndDesk(evidence: Evidence, server: MediaServer) {
     { identity: "admin", account: "admin", slot: "b", name: "B-android", profile: "ANDROID", position: PHONE_POSITIONS[0] }
   ]);
   evidence.note(`room ${hub.hubId} (${hub.mediaServer}); B-android is Edge with Playwright's Pixel 7 descriptor (touch, 412 x 839, pixel ratio 2.625, Chrome on Android's user agent), signed in as the room's owner so it may place media`);
-  const entry = await enterDevices(evidence, [d, p], hub.hubId);
+  const entry = await enterDevices(evidence, [d, p], hub.hubId, { newSolver: T7_NEW_SOLVER });
   await frameRateCheck(evidence, [d, p]);
   await connectedCheck(evidence, [d, p], server, "checklist-3");
   const [idd, idp] = [await idOf(d), await idOf(p)];
@@ -332,6 +339,7 @@ async function androidAndDesk(evidence: Evidence, server: MediaServer) {
       data: moved
     };
   });
+  if (T7_NEW_SOLVER) await screenSolverCheck(evidence, d, p, idp, entry[1]);
 
   const { hear, see } = await grids(evidence, [d, p], "entry", "", { reannounce: false });
   await evidence.check("Audio both ways", "checklist-3", async () => ({ ok: hear.missing.length === 0, summary: gridLine(hear), data: hear.cells }));
@@ -414,7 +422,7 @@ async function iosAndDesk(evidence: Evidence, server: MediaServer, profile: "IOS
   ]);
   const ua = await i.page.evaluate(() => navigator.userAgent);
   evidence.note(`room ${hub.hubId} (${hub.mediaServer}); ${i.name} is Playwright's Linux WebKit in the netclient container with the ${profile === "IOS" ? "iPhone 15" : "iPad (gen 7)"} descriptor (${ua}); its microphone is the slot's pilot made with Web Audio`);
-  const entered = await enterDevices(evidence, [d, i], hub.hubId).catch((e: Error) => e);
+  const entered = await enterDevices(evidence, [d, i], hub.hubId, { newSolver: T7_NEW_SOLVER }).catch((e: Error) => e);
   await evidence.check("Loads and enters the room", "checklist-3", async () => {
     if (entered instanceof Error) return { ok: false, summary: `did not enter: ${entered.message.split("\n")[0]}` };
     const s = await readSession(i.page);
@@ -459,6 +467,7 @@ async function iosAndDesk(evidence: Evidence, server: MediaServer, profile: "IOS
       data: { seen, seenByIos }
     };
   });
+  if (T7_NEW_SOLVER) await screenSolverCheck(evidence, d, i, idi, entered[1]);
   await gridCheck(evidence, see, "checklist-3");
 
   await evidence.check("Mute and unmute with a tap on Voice", "checklist-3 B2", async () => {
