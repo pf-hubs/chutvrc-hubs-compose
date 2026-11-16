@@ -10,10 +10,16 @@
 // Per frame (degrees and centimetres):
 // - hand: hand bone to the controller (position), and the hand bone's orientation against the controller's
 //   turned by the hand correction both solvers apply (a quarter turn about z for a model facing -z, a third
-//   of a turn about x otherwise); also against the target in the model's proportions (the new solver scales
-//   heights by its calibration, eye height of the user over the model's), and the wrist's bend (the hand's
-//   rest axis against the forearm);
-// - eyes: the midpoint of the eye bones to the head pose; the head bone's facing against the headset's;
+//   of a turn about x otherwise), and the wrist's bend (the hand's rest axis against the forearm);
+// - the drawn size: the new solver draws a VR sender's model at its ratio (the sender's announced standing
+//   eye height over the eye height of the model this observer loaded, ikState.modelRatio) and scales the
+//   root bone by it. Every rest-pose measure (the ankles' rest height, the eye height) is taken at the
+//   model's own size and multiplied by that ratio each frame; the root's actual scale is recorded beside it;
+// - eyes: the midpoint of the eye bones to the head pose, as it is (raw) and with the VR solver's deliberate
+//   knee slack taken into account (it hangs the body 3 cm in the model's proportions, so 3 cm x the ratio in
+//   the room, below the exact eye height so the legs keep a bend: the drawn eyes sit that much under the
+//   headset); the eyes' height over the floor and their height against the headset's; the head bone's
+//   facing against the headset's;
 // - elbows and knees: how far each bends and to which side. The side is the angle between the way the lower
 //   bone folds and the way the joint folds anatomically, both seen across the upper bone: the forearm folds
 //   toward the model's front as it was in its rest pose, the shin toward its back, fixed in the upper bone's
@@ -105,17 +111,18 @@ export const IK_FIELDS = [
   "isVR",
   "tracked",
   "newSolver",
-  "calib",
+  "modelRatio",
+  "rootScale",
   "handErrL",
   "handErrR",
-  "handErrScaledL",
-  "handErrScaledR",
   "handRotErrL",
   "handRotErrR",
   "wristL",
   "wristR",
   "eyeErr",
-  "eyeErrScaled",
+  "eyeErrSlack",
+  "eyeDy",
+  "eyeHeight",
   "headDirErr",
   "elbowBendL",
   "elbowSideL",
@@ -164,10 +171,17 @@ export type IkInfo = {
   isFlippedY: boolean;
   forward: number[];
   bones: string[];
+  /** At the model's own size (root scale 1) */
   restAnkle: { left: number | null; right: number | null };
   restEyeHeight: number | null;
   skeletonBones: number;
 };
+
+/**
+ * The VR solver's deliberate drop of the body under the exact eye height, in the model's own metres
+ * (STANDING_KNEE_SLACK of the client's ik/vr/solve-vr-body.ts): the legs keep a bend while the user stands
+ */
+export const KNEE_SLACK = 0.03;
 
 /** The recorder in page code: window.__e2eIk.start(key, clientId), .stop(key), .info(clientId), .ownCheck() */
 export const IK_PROBE = `(() => {
@@ -195,8 +209,9 @@ export const IK_PROBE = `(() => {
     if (!B.root || !B.hips) return null;
     const names = new Map();
     for (const [name, bone] of Object.entries(B)) if (bone) names.set(bone, name);
-    // Root space: the frame of the root's children with the root at the origin, unturned, at its own scale
-    const mats = new Map([[B.root, new THREE.Matrix4().makeScale(B.root.scale.x, B.root.scale.y, B.root.scale.z)]]);
+    // Root space: the frame of the root's children with the root at the origin, unturned, at the model's own
+    // size (the new solver scales the root by its ratio; each frame multiplies these measures by it)
+    const mats = new Map([[B.root, new THREE.Matrix4()]]);
     const restMatrix = o => {
       if (mats.has(o)) return mats.get(o);
       if (!o.parent) return null;
@@ -284,8 +299,12 @@ export const IK_PROBE = `(() => {
     out.tracked = pose.tracked;
     const newSolver = !!APP.store.state.preferences.avatarIkV2;
     out.newSolver = newSolver ? 1 : 0;
-    const calib = newSolver && ctx.ik.ikState && ctx.ik.ikState.calibration ? ctx.ik.ikState.calibration.heightScale : null;
-    out.calib = r(calib, 4);
+    // The size the model is drawn at over its own: the new solver's ratio (1 for the screen and chatbot
+    // solvers); the old solver draws the model at its own size
+    const state = ctx.ik.ikState;
+    const ratio = newSolver && state && Number.isFinite(state.modelRatio) && state.modelRatio > 0 ? state.modelRatio : 1;
+    out.modelRatio = r(ratio, 5);
+    out.rootScale = r(B.root.scale.y, 5);
     out.rigX = r(rigPos[0], 4);
     out.rigZ = r(rigPos[2], 4);
     out.rigYaw = r(pose.rig.rot.y * M.RAD, 2);
@@ -300,8 +319,6 @@ export const IK_PROBE = `(() => {
       const trackedBit = side === "left" ? 2 : 4;
       if (hand && pose.isVR && (pose.tracked & trackedBit)) {
         out["handErr" + S1] = r(M.dist(hand.p, target) * 100, 2);
-        const scaled = calib ? M.rigToWorld(rigPos, rigQuat, [part.pos.x, part.pos.y / calib, part.pos.z]) : target;
-        out["handErrScaled" + S1] = r(M.dist(hand.p, scaled) * 100, 2);
         const want = M.qMul(M.qMul(rigQuat, arr4(part.quat)), ctx.correction[side]);
         out["handRotErr" + S1] = r(M.qAngle(hand.q, want), 2);
       }
@@ -320,7 +337,7 @@ export const IK_PROBE = `(() => {
         out["kneeSide" + S1] = r(sideAngle, 2);
       }
       if (foot && ctx.restAnkle[side] !== null) {
-        const clearance = foot.p[1] - rigPos[1] - ctx.restAnkle[side];
+        const clearance = foot.p[1] - rigPos[1] - ctx.restAnkle[side] * ratio;
         out["foot" + S1] = r(clearance * 100, 2);
         const prevFoot = ctx.prev && ctx.prev.W[side + "Foot"];
         if (prevFoot && ctx.prev.clear[side] < 0.03 && clearance < 0.03) out["slide" + S1] = r(Math.hypot(foot.p[0] - prevFoot.p[0], foot.p[2] - prevFoot.p[2]) * 100, 3);
@@ -338,8 +355,12 @@ export const IK_PROBE = `(() => {
     } else if (head) eyes = M.add(head.p, [0, 0.08, 0]);
     if (eyes) {
       out.eyeErr = r(M.dist(eyes, headset) * 100, 2);
-      const scaledHeadset = calib ? M.rigToWorld(rigPos, rigQuat, [pose.head.pos.x, pose.head.pos.y / calib, pose.head.pos.z]) : headset;
-      out.eyeErrScaled = r(M.dist(eyes, scaledHeadset) * 100, 2);
+      // The VR solver hangs the body KNEE_SLACK (model metres) under the exact eye height, so the drawn eyes
+      // are meant to sit that times the ratio under the headset; only in VR with the new solver
+      const slack = newSolver && pose.isVR ? ${KNEE_SLACK} * ratio : 0;
+      out.eyeErrSlack = r(M.dist(eyes, [headset[0], headset[1] - slack, headset[2]]) * 100, 2);
+      out.eyeDy = r((eyes[1] - headset[1]) * 100, 2);
+      out.eyeHeight = r(eyes[1] - rigPos[1], 4);
     }
     if (head && ctx.facing.head) out.headDirErr = r(M.angle(M.qRot(head.q, ctx.facing.head), M.qRot(M.qMul(rigQuat, arr4(pose.head.quat)), [0, 0, -1])), 2);
     // Spine twist
@@ -493,14 +514,18 @@ export type IkSummary = {
   handErrMean: number | null;
   handErrP95: number | null;
   handErrMax: number | null;
-  handErrScaledMean: number | null;
-  handErrScaledMax: number | null;
   handRotErrMean: number | null;
   handRotErrMax: number | null;
   wristMax: number | null;
   eyeErrMean: number | null;
   eyeErrMax: number | null;
-  eyeErrScaledMean: number | null;
+  /** With the VR solver's knee slack taken into account (the raw distance is eyeErr*) */
+  eyeErrSlackMean: number | null;
+  eyeErrSlackMax: number | null;
+  /** The eyes' height against the headset's: mean (negative: under it) */
+  eyeDyMean: number | null;
+  /** The drawn eyes' height over the floor: mean, in metres */
+  eyeHeightMean: number | null;
   headDirErrMean: number | null;
   headDirErrMax: number | null;
   /** Frames with an elbow (or knee) on the wrong side, either side, and the largest side angle of a bent joint */
@@ -527,7 +552,9 @@ export type IkSummary = {
   bodyTurnMax: number | null;
   bodyTurnEnd: number | null;
   nanFrames: number;
-  calib: number | null;
+  /** The new solver's ratio and the root bone's scale, at the motion's end (1: the model's own size) */
+  modelRatio: number | null;
+  rootScale: number | null;
 };
 
 export function summariseIk(frames: IkFrame[]): IkSummary {
@@ -538,21 +565,26 @@ export function summariseIk(frames: IkFrame[]): IkSummary {
   const bentSides = (bend: IkField, side: IkField) => frames.filter(x => finite(x[bend]) && (x[bend] as number) >= MIN_BEND_DEG && finite(x[side])).map(x => x[side] as number);
   const feet = both("footL", "footR");
   const excess = frames.filter(x => finite(x.jumpPos) && finite(x.inputJump)).map(x => (x.jumpPos as number) - (x.inputJump as number));
-  const calibs = col("calib");
+  const ratios = col("modelRatio");
+  const roots = col("rootScale");
   return {
     frames: frames.length,
     vrFrames: frames.filter(x => x.isVR === 1).length,
     handErrMean: r2(mean(both("handErrL", "handErrR"))),
     handErrP95: r2(p95(both("handErrL", "handErrR"))),
     handErrMax: r2(max(both("handErrL", "handErrR"))),
-    handErrScaledMean: r2(mean(both("handErrScaledL", "handErrScaledR"))),
-    handErrScaledMax: r2(max(both("handErrScaledL", "handErrScaledR"))),
     handRotErrMean: r2(mean(both("handRotErrL", "handRotErrR"))),
     handRotErrMax: r2(max(both("handRotErrL", "handRotErrR"))),
     wristMax: r2(max(both("wristL", "wristR"))),
     eyeErrMean: r2(mean(col("eyeErr"))),
     eyeErrMax: r2(max(col("eyeErr"))),
-    eyeErrScaledMean: r2(mean(col("eyeErrScaled"))),
+    eyeErrSlackMean: r2(mean(col("eyeErrSlack"))),
+    eyeErrSlackMax: r2(max(col("eyeErrSlack"))),
+    eyeDyMean: r2(mean(col("eyeDy"))),
+    eyeHeightMean: (() => {
+      const v = mean(col("eyeHeight"));
+      return v === null ? null : +v.toFixed(4);
+    })(),
     headDirErrMean: r2(mean(col("headDirErr"))),
     headDirErrMax: r2(max(col("headDirErr"))),
     elbowWrong: wrong("elbowBendL", "elbowSideL", "elbowBendR", "elbowSideR"),
@@ -580,7 +612,8 @@ export function summariseIk(frames: IkFrame[]): IkSummary {
       return v.length ? r2(Math.abs(v[v.length - 1])) : null;
     })(),
     nanFrames: frames.filter(x => (x.nan ?? 0) > 0).length,
-    calib: calibs.length ? calibs[calibs.length - 1] : null
+    modelRatio: ratios.length ? ratios[ratios.length - 1] : null,
+    rootScale: roots.length ? roots[roots.length - 1] : null
   };
 }
 
