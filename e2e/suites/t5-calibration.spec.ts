@@ -315,7 +315,7 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
       ok: "not applicable",
       summary:
         `out of VR the item reads "${button?.text ?? "not found"}" with its button ${button?.disabled ? "disabled" : "enabled"}; in VR the page hides its 2D interface (body class "${inVrMenu.bodyClass}", the More button ${inVrMenu.moreVisible ? "visible" : "not visible"}), ` +
-        "so Preferences, and with it the button, cannot be reached while the capture is possible; on this emulation the capture again is only reached by entering VR again",
+        "so Preferences, and with it the button, cannot be reached while the capture is possible; in VR the in-world menu's \"Capture height again\" takes its place (T5d)",
       data: { button, inVrMenu }
     };
   });

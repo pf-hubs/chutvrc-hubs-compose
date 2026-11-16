@@ -86,8 +86,15 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const vr = client.profile === "QUEST" || client.profile === "OLD_QUEST";
   // E2E_QUEST_NEW_SOLVER=1: a headset test that does not set the solver itself runs with the new one on and no
   // height saved, so its entry goes through the calibration (seeded, below): the existing VR tests with F4
+  // Otherwise a test that does not set the solver gets the client's default, the old solver, and the default
+  // fit and posture: a signed-in profile keeps what an earlier test (T5) set. The previous build's store has no
+  // such preferences and reports them as invalid, so it is left alone
   const preferences =
-    client.profile === "QUEST" && process.env.E2E_QUEST_NEW_SOLVER === "1" && opts.preferences?.avatarIkV2 === undefined ? { ...opts.preferences, avatarIkV2: true, bodyHeightCm: 0 } : opts.preferences;
+    opts.preferences?.avatarIkV2 !== undefined || client.profile === "OLD" || client.profile === "OLD_QUEST"
+      ? opts.preferences
+      : client.profile === "QUEST" && process.env.E2E_QUEST_NEW_SOLVER === "1"
+        ? { ...opts.preferences, avatarIkV2: true, bodyHeightCm: 0 }
+        : { ...opts.preferences, avatarIkV2: false, bodyPosture: "standing", bodyFit: "avatarToPlayer" };
   if (preferences) await page.evaluate(preferences => (window as any).APP.store.update({ preferences }), preferences);
   const wanted: Calibration = { ...DEFAULT_CALIBRATION, ...opts.calibration };
   const saved = await page.evaluate(() => {
