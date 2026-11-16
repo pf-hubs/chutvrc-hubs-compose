@@ -146,6 +146,50 @@ Other results of these runs: the first Dialog T2.10 attempt began one-way (A nev
 - `probes/calibration.ts`: what a wearer's page applied, its captures, and how an observer draws a client.
 - `suites/t5-ik.spec.ts`: both fits, seated, the new pass rules with the reach allowance; `suites/t5-calibration.spec.ts`: T5a, T5b, T5c and T4.11 with the calibration; `suites/f4-checks.ts` with `T7_NEW_SOLVER=1` for T7.2 and T7.3; T2.10 as above; `trials/avatar-lines.ts`.
 
+## F4 after the shoulder fix, and the in-VR capture button
+
+Code: hubs `feature/client-tests` at `1c1c46a29` (bundle `hub-444dba75...`): the shoulder turning toward a controller beyond the arm (`reachWithShoulder` in `ik/shared/limbs.ts`, the shoulders written every frame by `followChain`) and the "Capture height again" button of the in-world menu (`components/body-capture-button.js`). Runs `f4-reach-dialog` (the whole T5 suite, and T5d) and `f4-livekit-local` → `f4-reach-livekit-local` (the six standing VR tests and the summary). Re-announce workaround off, OBS off, 60 fps throughout.
+
+**T5 after the fix: every test passes on both servers** (Dialog 12 of 12, LiveKit 7 of 7), the hand rule included; eyes 0.00 cm with the slack, soles 0.0 cm, no wrong-side joint, no NaN, as before.
+
+Hand error, mean distance from hand bone to controller in cm: old solver / new solver before the fix (`f4-dialog`) / after it (`f4-reach-dialog`), Dialog. "+x" is the reach allowance of "Fit the avatar to me".
+
+| Avatar, fit | M01 | M02 | M03 | M04 | M05 reach | M06 | M07 | M08 | M09 | M10 | H1 | all motions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Ready Player Me, avatar to me | 0.0/0.3/0.0 | 3.9/2.8/0.2 | 6.6/1.1/0.3 | 6.1/1.7/0.3 | 7.7/10.3/**6.2** (+3.3) | 0.3/0.8/0.3 | 0.4/1.9/0.4 | 0.0/1.6/0.0 | 0.8/1.9/0.7 | 3.6/4.2/3.0 | 1.3/1.2/1.2 | 2.80/2.52/**1.15** |
+| Ready Player Me, me to avatar | 0.0/0.3/0.0 | 2.4/3.0/0.3 | 0.3/1.1/0.4 | 1.3/1.8/0.3 | 8.4/11.1/**6.5** | 0.4/0.9/0.3 | 0.5/2.1/0.4 | 0.0/1.7/0.0 | 0.9/2.1/0.8 | 4.2/4.6/3.1 | 1.4/1.3/1.2 | 1.79/2.72/**1.22** |
+| Ready Player Me seated, avatar to me | 0.0/0.3/0.0 | | 0.4/0.5/0.3 | | 8.1/10.2/**6.2** (+3.3) | | | 3.7/0.5/0.0 | | | | 3.06/2.85/1.64 |
+| Ready Player Me seated, me to avatar | 0.0/0.3/0.0 | | 0.3/0.5/0.4 | | 8.7/10.9/**6.2** | | | 0.0/0.5/0.0 | | | | 2.25/3.04/1.64 |
+| VRM 0.x, avatar to me | 4.3/0.0/0.0 | 8.1/0.8/0.0 | 4.7/0.3/0.3 | 3.9/0.5/0.3 | 9.4/6.9/4.3 (+5.6) | 2.7/0.3/0.3 | 4.4/0.4/0.4 | 4.3/0.0/0.0 | 3.4/0.7/0.7 | 6.1/3.1/2.8 | 2.0/1.2/1.2 | 4.84/1.29/0.94 |
+| VRM 0.x, me to avatar | 0.0/0.0/0.0 | 3.1/0.7/0.0 | 0.3/0.3/0.3 | 1.3/0.5/0.3 | 5.6/6.1/3.9 | 1.2/0.3/0.2 | 0.4/0.3/0.3 | 0.0/0.0/0.0 | 0.8/0.6/0.6 | 3.4/2.7/2.4 | 1.5/1.0/1.0 | 1.59/1.15/0.83 |
+| VRM 1.0, avatar to me | 5.0/0.0/0.0 | 8.7/0.8/0.0 | 3.4/0.3/0.3 | 5.4/0.6/0.3 | 10.2/6.8/4.3 (+5.1) | 9.8/0.3/0.3 | 5.1/0.4/0.4 | 5.0/0.0/0.0 | 5.3/0.7/0.7 | 6.5/3.1/2.8 | 3.1/1.2/1.2 | 6.15/1.29/0.94 |
+| VRM 1.0, me to avatar | 1.7/0.0/0.0 | 5.4/0.8/0.0 | 0.3/0.3/0.3 | 1.2/0.5/0.3 | 6.0/6.1/3.9 | 7.7/0.3/0.3 | 1.1/0.3/0.3 | 0.8/0.0/0.0 | 1.9/0.6/0.6 | 5.0/2.7/2.5 | 1.2/1.0/1.0 | 2.93/1.14/0.84 |
+
+Local LiveKit, all motions old / before / after: Ready Player Me 1.47/2.54/1.16 and 1.80/2.70/1.22; VRM 0.x 4.83/1.28/0.93 and 1.91/1.13/0.83; VRM 1.0 6.10/1.27/0.93 and 3.00/1.15/0.83 (M05: 7.3/10.3/6.4, 8.5/11.0/6.6, 9.4/6.8/4.3, 5.6/6.0/3.9, 10.0/6.7/4.3, 6.0/6.1/3.8). The new solver is now below the old one in every motion of every avatar and fit, M05 included; the allowance is no longer needed. The largest single M05 frame is 26.8 cm (Ready Player Me, reaching 0.17 m beyond the arm behind the back), 17.5 to 19.9 cm for the VRM models.
+
+The shoulders at full reach: in M05's frame on the sheet the Ready Player Me model's shoulders rise and turn toward the raised controllers and the arms are straight to the hands, where before the fix the arms stopped short (`f4-reach-dialog\t5-rpm-vr-fit-avatar-dialog\t5-frames\vr-m05-new.jpg`, against `f4-dialog\...\vr-m05-new.jpg`). Evidence: contact sheets `f4-reach-dialog\t5-summary-dialog\sheet-rpm.png`, `sheet-vrm0.png`, `sheet-vrm1.png`; side-by-side videos `summary-*.mp4` there and `t5-vr-m05.mp4` in each test folder; LiveKit `f4-reach-livekit-local\t5-summary-livekit-local`.
+
+### T5d: the "Capture height again" button (emulated Quest, Dialog)
+
+`suites/t5-calibration.spec.ts` "T5d": one headset, 173 cm standing, "Fit the avatar to me", the headset at 1.70 m (so a kept capture is told from the entered height), the page switched to Japanese after entry. The ray is aimed from the cursor controller's own ray (`cursor-controller.js`), turned onto the button until it hovers. Evidence `f4-reach-dialog\t5d-dialog`.
+
+| Step | Result | Numbers |
+| --- | --- | --- |
+| Hidden during the entry capture, shown after it | **pass** | samples every 50 ms from Enter Room: prompt in 19, button and prompt together in 0; the button shown 50 ms after the prompt went; capture 1.700 m after 1020 ms |
+| In the menu above "invite", Japanese label | **fail: not drawn** | the component shows it (visible true, 0.103 m above "invite", label "高さを測り直す"), but nothing of the in-world menu is drawn: `#avatar-rig` carries `visible="false"` in `hub.html` (since `3d2cd9641a`, 2024, the full-body avatar work; the same on develop), and the menu `#player-hud` is the rig's child, so three.js draws none of it. Hover and click still work, because the cursor's raycast ignores visibility (as `link-hover-menu.ts` notes). Screenshots `shot-01-A-quest-menu-looking-up.png`, `...looking-down.png` show no menu |
+| Ray hover turns it pink | **pass** | background rgba(255, 52, 116, 0.9), otherwise rgba(0, 0, 0, 0.75) |
+| Trigger click: prompt shown, button hidden; steady second captures; button returns | **pass** | right after the click prompt shown, button hidden; "Body calibration: captured the headset at 1.700 m"; the button back 2 ms later |
+| A moving headset keeps the previous calibration | **pass** | head bobbing ±4 cm for 12 s after a click: timed out; announced stays 1.700 m (not the entered 1.619 m) |
+| Seated: the tracking offset stays during a recapture | **pass** | headset 1.15 m, head sent at 1.619 m; ten samples during the capture from the button: all 1.619 m |
+| Not shown without a height, with the new solver off, outside VR | **pass** | hidden, hidden, (back: shown), hidden |
+| Preferences outside VR shows the hint | **pass**, with a wrong direction | "(in VR: look down and choose "Capture height again" in the menu)", button disabled; Japanese "（VRでは下を向き…）". The in-world menu sits 0.7 m above the head and shows when looking up (`hud-controller.js`: `t` reaches 1 at a pitch of 20° up, the menu leaves the view below 5°); "look down" would be "look up" |
+
+Product problems from these runs:
+
+1. **The in-world menu, with the new button, is not drawn in VR**: `src/hub.html` `#avatar-rig ... visible="false"` hides its whole subtree, `#player-hud` included (the button, "invite", the presence count). The button can be hovered and clicked blind. Whether a real Quest draws it is the same three.js rule, so it should not; to confirm on the headset.
+2. **The hint says "look down"**, while the menu is above the head (`preferences-screen.js` message `preferences-screen.body-capture-again.in-vr-menu`, `ja.json` the same).
+3. With the page in Japanese, react-intl reports missing Japanese strings as console errors (`chat-tooltip.description`, `invite-tooltip.description`, `mute`, `mute-tooltip.description`, `recording-button`, `recording.description`, `share-tooltip.description`); allowed in T5d only, not part of F4.
+
 ## How the muted entry is driven
 
 `clients/enter.ts`, option `enterMuted`: after the microphone setup step is shown, the checkbox with the accessible name "Mute" (`getByRole("checkbox", { name: "Mute", exact: true })`, the `ToggleInput` of `MicSetupModal.js`) is switched through its label, since the checkbox itself is 0 x 0 and transparent. The client stores the choice as the `muteMicOnEntry` preference of the profile, so the test puts it back to `false` when it ends (`setMuteOnEntryPreference`).
