@@ -19,7 +19,7 @@ import { room, type MediaServer } from "../lib/fixtures";
 import type { Client } from "../clients/launch";
 import { enterRoom, fillCalibration, type BodyFit, type EntryTimings } from "../clients/enter";
 import * as input from "../clients/input";
-import { enterVr, exitVr, playTimeline, startTimeline, stopTimeline, type Keyframe, type Timeline } from "../clients/motion";
+import { enterVr, exitVr, playTimeline, startTimeline, stopTimeline, yawPitchRoll, type Keyframe, type Timeline } from "../clients/motion";
 import { hideAvatarsExcept, observerPlace, placeRig, type Framing } from "../clients/stage";
 import { VR_MOTIONS } from "../motions/battery";
 import { MODEL_URL } from "../assets/generate";
@@ -62,10 +62,10 @@ function hold(ms: number, parts: Partial<Keyframe> = {}): Timeline {
 const holdStand = (page: Client["page"], ms: number) => playTimeline(page, hold(ms));
 
 /** The head bobbing 8 cm up and down once a second for `ms`: never a steady second */
-function bobbing(ms: number): Timeline {
+function bobbing(ms: number, headY = STAND.head!.pos[1]): Timeline {
   const keyframes: Keyframe[] = [];
   for (let t = 0; t <= ms; t += 100) {
-    const y = STAND.head!.pos[1] + 0.04 * Math.sin((2 * Math.PI * t) / 1000);
+    const y = headY + 0.04 * Math.sin((2 * Math.PI * t) / 1000);
     keyframes.push({ ...STAND, head: { ...STAND.head!, pos: [STAND.head!.pos[0], y, STAND.head!.pos[2]] }, t });
   }
   return { name: "bobbing", keyframes };
@@ -722,6 +722,282 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
   await closingChecks(evidence, [old, q, d], ALLOW);
 }
 
+// ---------- T5d ----------
+
+/** The page in Japanese logs every toolbar string the Japanese locale lacks (react-intl, through console.error) */
+const JA_MISSING = {
+  pattern: /MISSING_TRANSLATION\] Missing message: .* for locale "ja"|^\s*at|^$/,
+  types: ["error" as const],
+  reason: "T5d shows the page in Japanese: the toolbar's tooltip and button strings the Japanese locale lacks (chat-tooltip, invite-tooltip, mute, mute-tooltip, recording-button, recording, share-tooltip descriptions) are reported by react-intl; not part of F4"
+};
+
+/** The "Capture height again" button of the in-world menu (body-capture-button.js), as the page has it */
+type ButtonState = { visible: boolean; drawn: boolean; text: string; background: string; pos: number[]; invite: number[]; hudVisible: boolean; promptVisible: boolean };
+const HOVER_BACKGROUND = /255, 52, 116/;
+
+function buttonState(page: Client["page"]): Promise<ButtonState> {
+  return page.evaluate(() => {
+    const T = (window as any).AFRAME.THREE;
+    const el = document.querySelector("[body-capture-button]") as any;
+    const inv = document.querySelector(".invite-btn") as any;
+    const at = (o: any) => {
+      const v = new T.Vector3();
+      o.updateMatrixWorld(true);
+      o.getWorldPosition(v);
+      return [v.x, v.y, v.z].map((n: number) => +n.toFixed(3));
+    };
+    const panel = el.components["body-capture-button"].panel;
+    let drawn = true;
+    for (let o = el.object3D; o; o = o.parent) if (!o.visible) drawn = false;
+    const hud = document.querySelector("[in-world-hud]") as any;
+    // The capture prompt (vr-capture.ts): the follow-in-fov entity holding a mesh drawn over everything
+    const prompt = [...document.querySelectorAll("[follow-in-fov]")].find((e: any) => e.object3D.children.some((c: any) => c.renderOrder === 10000)) as any;
+    return {
+      visible: el.object3D.visible,
+      drawn,
+      text: panel.text,
+      background: panel.background,
+      pos: at(el.object3D),
+      invite: at(inv.object3D),
+      hudVisible: hud.object3D.visible,
+      promptVisible: !!prompt && prompt.object3D.visible
+    };
+  });
+}
+
+/** Samples the button and the prompt every 50 ms in the page, from now until `stop` */
+async function startButtonSampler(page: Client["page"]) {
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__e2eButtonSamples = [];
+    const prompt = () => [...document.querySelectorAll("[follow-in-fov]")].find((e: any) => e.object3D.children.some((c: any) => c.renderOrder === 10000)) as any;
+    w.__e2eButtonTimer = setInterval(() => {
+      const el = document.querySelector("[body-capture-button]") as any;
+      const p = prompt();
+      w.__e2eButtonSamples.push([Math.round(performance.now()), el ? (el.object3D.visible ? 1 : 0) : -1, p ? (p.object3D.visible ? 1 : 0) : -1]);
+    }, 50);
+  });
+}
+async function stopButtonSampler(page: Client["page"]): Promise<[number, number, number][]> {
+  return page.evaluate(() => {
+    const w = window as any;
+    clearInterval(w.__e2eButtonTimer);
+    return w.__e2eButtonSamples ?? [];
+  });
+}
+
+/** The head looking up (the in-world menu sits above the head, hud-controller.js), the right controller at `rightQuat` */
+const lookUp = (headY: number, rightQuat?: number[]): Partial<Keyframe> => ({
+  head: { pos: [STAND.head!.pos[0], headY, STAND.head!.pos[2]], quat: yawPitchRoll(0, 35) },
+  ...(rightQuat ? { right: { ...STAND.right!, quat: rightQuat as [number, number, number, number] } } : {})
+});
+
+/**
+ * Points the right controller's ray at the button: from the controller toward the button's position, then
+ * small turns around that until the button draws its hover colour. Returns the controller orientation found.
+ */
+async function aimAtButton(page: Client["page"], headY: number): Promise<number[] | null> {
+  await playTimeline(page, hold(800, lookUp(headY)));
+  // Turn the controller by the rotation from where its ray (cursor-controller.js) points now to the button,
+  // a few times, since the ray leaves the controller with an offset of its own
+  let quat: number[] = STAND.right!.quat;
+  for (let i = 0; i < 5; i++) {
+    const next = await page.evaluate(q0 => {
+      const T = (window as any).AFRAME.THREE;
+      const ray = (document.querySelector("#right-cursor-controller") as any).components["cursor-controller"].raycaster.ray;
+      const el = document.querySelector("[body-capture-button]") as any;
+      const b = new T.Vector3();
+      el.object3D.getWorldPosition(b);
+      const want = b.sub(ray.origin).normalize();
+      const turn = new T.Quaternion().setFromUnitVectors(ray.direction.clone().normalize(), want);
+      // The controller's pose is in the rig's frame: the turn is taken into it
+      const rig = new T.Quaternion();
+      (document.querySelector("#avatar-rig") as any).object3D.getWorldQuaternion(rig);
+      const local = rig.clone().invert().multiply(turn).multiply(rig);
+      const q = local.multiply(new T.Quaternion(q0[0], q0[1], q0[2], q0[3]));
+      return { quat: [q.x, q.y, q.z, q.w], angle: (ray.direction.angleTo(want) * 180) / Math.PI };
+    }, quat);
+    quat = next.quat;
+    await playTimeline(page, hold(250, lookUp(headY, quat)));
+    if (HOVER_BACKGROUND.test((await buttonState(page)).background)) return quat;
+  }
+  return null;
+}
+
+/** A trigger press and release with the controller held at `quat`, the head looking up */
+async function clickButton(page: Client["page"], headY: number, quat: number[]) {
+  const k = (t: number, trigger: number): Keyframe => ({ ...STAND, ...lookUp(headY), right: { ...STAND.right!, quat: quat as [number, number, number, number], buttons: { trigger } }, t });
+  await playTimeline(page, { name: "click", keyframes: [k(0, 0), k(150, 1), k(300, 0), k(350, 0)] });
+}
+
+async function captureButton(evidence: Evidence, server: MediaServer) {
+  test.setTimeout(20 * 60_000);
+  const hub = room(mainRoom(server));
+  const [q] = await startClients(evidence, [{ identity: "quest1", slot: "a", name: "A-quest", profile: "QUEST" }]);
+  // Standing at 1.70 m: a capture there differs from the 173 cm entered (1.619 m), so a capture kept is told from the entered height
+  const HEAD = 1.7;
+  const standAt = (ms: number, y = HEAD, extra: Partial<Keyframe> = {}) => playTimeline(q.page, hold(ms, { head: { ...STAND.head!, pos: [STAND.head!.pos[0], y, STAND.head!.pos[2]] }, ...extra }));
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest alone: new solver on, ${HEIGHT_CM} cm standing, "Fit the avatar to me", the page switched to Japanese (preference locale "ja") after entry; its headset held at ${HEAD} m`);
+  // A run that stopped half way leaves the profile in Japanese; the entry helper reads the English entry UI
+  await q.page.goto(q.roomUrl(hub.hubId), { waitUntil: "domcontentloaded", timeout: 120_000 });
+  await q.page.waitForFunction(() => !!(window as any).APP?.store, undefined, { timeout: 120_000 });
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { locale: "en" } }));
+  const logFrom = q.log.length;
+  await enterRoom(q, hub.hubId, {
+    displayName: q.name,
+    preferences: { ...NEW_SOLVER, locale: "en" },
+    calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
+    beforeEnter: async page => {
+      await markXrSessions(page);
+      await standAt(200);
+      await startButtonSampler(page);
+    }
+  });
+  await standAt(2500);
+  const entrySamples = await stopButtonSampler(q.page);
+  await evidence.check("The button stays hidden while the entry capture runs, and shows once it is taken", "V6", async () => {
+    const promptOn = entrySamples.filter(s => s[2] === 1);
+    const both = entrySamples.filter(s => s[1] === 1 && s[2] === 1).length;
+    const lastPrompt = promptOn.length ? promptOn[promptOn.length - 1][0] : null;
+    const firstAfter = lastPrompt === null ? null : entrySamples.find(s => s[0] > lastPrompt && s[1] === 1);
+    const c = captureSince(q, logFrom);
+    return {
+      ok: promptOn.length > 0 && both === 0 && !!firstAfter && c.result?.kind === "captured",
+      summary: `${entrySamples.length} samples every 50 ms from Enter Room: the prompt shown in ${promptOn.length}, the button and the prompt together in ${both}; the button shown ${firstAfter && lastPrompt !== null ? `${firstAfter[0] - lastPrompt} ms after the prompt went` : "never after the prompt"}; capture ${c.result?.kind ?? "none"} ${fmt(c.result?.height)} m after ${c.ms} ms`,
+      data: { entrySamples, capture: c }
+    };
+  });
+
+  // The page in Japanese from here on (the entry UI stays English, which the entry helper reads)
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { locale: "ja" } }));
+  await standAt(1000, HEAD, lookUp(HEAD));
+  const shown = await buttonState(q.page);
+  await evidence.screenshot(q, "menu-looking-up");
+  await standAt(1000, HEAD, { head: { ...STAND.head!, pos: [STAND.head!.pos[0], HEAD, STAND.head!.pos[2]], quat: yawPitchRoll(0, -30) } });
+  const lookingDown = await buttonState(q.page);
+  await evidence.screenshot(q, "menu-looking-down");
+  await evidence.check('The button in the in-world menu, above "invite", labelled in the page\'s language', "V6", async () => ({
+    ok: shown.visible && shown.drawn && shown.pos[1] > shown.invite[1] && shown.text === "高さを測り直す",
+    summary: `looking up 35°: button shown ${shown.visible}, drawn ${shown.drawn}, at y ${shown.pos[1]} m against "invite" at ${shown.invite[1]} m (${(shown.pos[1] - shown.invite[1]).toFixed(3)} m above); label "${shown.text}"; looking down 30°: the menu ${lookingDown.hudVisible ? "drawn" : "not drawn"} (button shown ${lookingDown.visible}, drawn ${lookingDown.drawn})`,
+    data: { shown, lookingDown }
+  }));
+
+  const quat = await aimAtButton(q.page, HEAD);
+  const hovered = await buttonState(q.page);
+  await evidence.screenshot(q, "button-hovered");
+  await evidence.check("The right controller's ray on the button turns it pink", "V6", async () => ({
+    ok: !!quat && HOVER_BACKGROUND.test(hovered.background),
+    summary: quat ? `hovered: background ${hovered.background} (otherwise ${shown.background})` : `the ray found no orientation that hovers the button; background ${hovered.background}`,
+    data: { quat, hovered }
+  }));
+  if (!quat) {
+    await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { locale: "en" } }));
+    return closingChecks(evidence, [q], [...ALLOW, JA_MISSING]);
+  }
+
+  // A click starts a capture; a steady head then takes it
+  const announcedBefore = (await ownView(q.page)).announced;
+  const logClick = q.log.length;
+  await clickButton(q.page, HEAD, quat);
+  const afterClick = await buttonState(q.page);
+  await evidence.screenshot(q, "after-click");
+  await standAt(2500);
+  const c1 = captureLog(q, logClick);
+  const back = await waitUntil(async () => ((await buttonState(q.page)).visible ? true : null), 3000, 100);
+  await evidence.check("A trigger click shows the prompt and hides the button; a steady second captures and the button returns", "V6", async () => ({
+    ok: afterClick.promptVisible && !afterClick.visible && c1[0]?.kind === "captured" && near(c1[0]?.height, HEAD, 0.005) && !!back.value,
+    summary: `right after the click: prompt ${afterClick.promptVisible ? "shown" : "not shown"}, button ${afterClick.visible ? "shown" : "hidden"}; then ${c1[0] ? `${c1[0].kind} ${fmt(c1[0].height)} m` : "no capture"} ("Body calibration: captured the headset at …" in the console); the button back ${back.value ? `${back.ms} ms later` : "not within 3 s"}; announced ${announcedBefore} m before`,
+    data: { afterClick, c1 }
+  }));
+
+  // A moving headset keeps the previous capture
+  const logMove = q.log.length;
+  const quat2 = (await aimAtButton(q.page, HEAD)) ?? quat;
+  await clickButton(q.page, HEAD, quat2);
+  const afterClick2 = await buttonState(q.page);
+  await playTimeline(q.page, bobbing(12_000, HEAD));
+  await standAt(1000);
+  const moved = captureLog(q, logMove);
+  const keep = await ownView(q.page);
+  await evidence.check("A headset that keeps moving through a repeated capture keeps the previous calibration", "V6", async () => ({
+    ok: moved[0]?.kind === "timedOut" && near(keep.announced, HEAD, 0.002),
+    summary: `after a click (prompt ${afterClick2.promptVisible ? "shown" : "not shown"}) the head bobbing ±4 cm for 12 s: ${moved[0]?.kind ?? "no answer"}; announced ${keep.announced} m (the previous capture ${HEAD} m, not the entered height ${((HEIGHT_CM / 100) * EYE_HEIGHT_SHARE).toFixed(3)} m)`,
+    data: { moved, keep }
+  }));
+
+  // Seated: the tracking offset stays while a capture is taken again
+  const SEATED = 1.15;
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyPosture: "sitting" } }));
+  await standAt(3000, SEATED);
+  const seated = await ownView(q.page);
+  const seatedQuat = await aimAtButton(q.page, SEATED);
+  let during: (number | null)[] = [];
+  if (seatedQuat) {
+    await clickButton(q.page, SEATED, seatedQuat);
+    const play = standAt(2500, SEATED);
+    for (let i = 0; i < 10; i++) {
+      during.push((await ownView(q.page)).sentHeadY);
+      await q.page.waitForTimeout(200);
+    }
+    await play;
+  }
+  await evidence.check("Seated, the tracking offset stays while the height is captured again", "V6", async () => {
+    const want = (HEIGHT_CM / 100) * EYE_HEIGHT_SHARE;
+    const valid = during.filter((v): v is number => v !== null);
+    return {
+      ok: !!seatedQuat && near(seated.sentHeadY, want, 0.005) && valid.length > 5 && valid.every(v => near(v, want, 0.01)),
+      summary: `seated with the headset at ${SEATED} m: the head sent at ${seated.sentHeadY} m (standing eye height ${want.toFixed(3)}); during the capture taken again from the button: ${valid.map(v => v.toFixed(3)).join(", ") || "not measured (the button was not hovered)"}`,
+      data: { seated, during }
+    };
+  });
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyPosture: "standing" } }));
+  await standAt(2500);
+
+  // When the button is not shown
+  const states: Record<string, boolean> = {};
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyHeightCm: 0 } }));
+  await standAt(500, HEAD, lookUp(HEAD));
+  states["no height saved"] = (await buttonState(q.page)).visible;
+  await q.page.evaluate(h => (window as any).APP.store.update({ preferences: { bodyHeightCm: h } }), HEIGHT_CM);
+  await standAt(2500);
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: false } }));
+  await standAt(500, HEAD, lookUp(HEAD));
+  states["new solver off"] = (await buttonState(q.page)).visible;
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: true } }));
+  await standAt(2500);
+  states["back on, steady"] = (await buttonState(q.page)).visible;
+  await exitVr(q.page);
+  await q.page.waitForTimeout(800);
+  states["outside VR"] = (await buttonState(q.page)).visible;
+  await evidence.check("The button is not shown without a saved height, with the new solver off, or outside VR", "V6", async () => ({
+    ok: !states["no height saved"] && !states["new solver off"] && states["back on, steady"] && !states["outside VR"],
+    summary: Object.entries(states).map(([k, v]) => `${k}: ${v ? "shown" : "hidden"}`).join("; "),
+    data: states
+  }));
+
+  // Preferences outside VR: the hint (in English: the harness's menu helpers read the English labels)
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { locale: "en" } }));
+  await q.page.waitForTimeout(800);
+  await input.choosePopoverItem(q.page, "More", "Preferences");
+  await input.clickFound(q.page, `return document.querySelector('button[aria-label="Select category Misc"]')`, undefined, "the Misc category");
+  await q.page.waitForTimeout(500);
+  const item = await q.page.evaluate(() => {
+    const label = [...document.querySelectorAll('[class*="preference-label"]')].find(e => e.textContent?.startsWith("Capture the headset's height again"));
+    label?.scrollIntoView();
+    const button = label?.parentElement?.querySelector("button") as HTMLButtonElement | null;
+    return label ? { text: label.textContent, disabled: button?.disabled ?? null } : null;
+  });
+  await evidence.screenshot(q, "preferences-hint");
+  await input.clickFound(q.page, `return document.querySelector('button[aria-label="Close Preferences Menu"]')`, undefined, "the preferences close button");
+  await evidence.check("Preferences outside VR shows the hint where to find the button in VR", "V6", async () => ({
+    ok: !!item && /in VR: look down and choose "Capture height again" in the menu/.test(item.text ?? "") && item.disabled === true,
+    summary: `the item reads "${item?.text ?? "not found"}", its button ${item?.disabled ? "disabled" : "enabled"}; Japanese: "${"（VRでは下を向き、メニューの「高さを測り直す」を選びます）"}" (ja.json). The menu is above the head and shows when looking up (hud-controller.js); see the check above for where it was seen`,
+    data: item
+  }));
+  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { locale: "en" } }));
+  await closingChecks(evidence, [q], [...ALLOW, JA_MISSING]);
+}
+
 // ---------- Tests ----------
 
 for (const server of SERVERS) {
@@ -740,6 +1016,10 @@ for (const server of SERVERS) {
         await playerToAvatar(evidence, server, avatar);
       });
     }
+    test(`T5d the "Capture height again" button in the headset's in-world menu, on ${server}`, meta("t5d", server), async ({ evidence }) => {
+      runsOn(server);
+      await captureButton(evidence, server);
+    });
     test(`T4.11 with the body calibration: an old-build headset beside the new build, on ${server}`, meta("t4.11-f4", server, "V9 V6"), async ({ evidence }) => {
       runsOn(server);
       await oldBuildWithCalibration(evidence, server);
