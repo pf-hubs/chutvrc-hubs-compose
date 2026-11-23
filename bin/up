@@ -14,13 +14,34 @@ if [ -f "$basedir/.env" ]; then
     set -a; source "$basedir/.env"; set +a
 fi
 
+# The address of this machine on its default network
+detect_network_address() {
+    case "$OSTYPE" in
+        darwin*)
+            ipconfig getifaddr "$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')" 2>/dev/null
+            ;;
+        linux*)
+            ip route get 1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1
+            ;;
+        msys*|cygwin*)
+            powershell.exe -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { \$_.IPv4DefaultGateway -and \$_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress" 2>/dev/null | tr -d '\r'
+            ;;
+    esac
+}
+
+# PRIVATE_NETWORK_IP is the address browsers send voice and video to
+ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 if [ -z "$PRIVATE_NETWORK_IP" ]; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        IP_ADDR=$(ifconfig -l | xargs -n1 ipconfig getifaddr)
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        IP_ADDR=$(ip route get 1 | awk '{print $NF;exit}')
+    if [[ "$HUBS_HOST" =~ $ipv4 ]]; then
+        PRIVATE_NETWORK_IP=$HUBS_HOST
+    else
+        PRIVATE_NETWORK_IP=$(detect_network_address)
     fi
-    PRIVATE_NETWORK_IP=${IP_ADDR}
+    if ! [[ "$PRIVATE_NETWORK_IP" =~ $ipv4 ]]; then
+        echo "Could not detect this machine's network address. Using 127.0.0.1, so voice and video work on this machine only."
+        echo "To reach it from other devices, set PRIVATE_NETWORK_IP in .env."
+        PRIVATE_NETWORK_IP=127.0.0.1
+    fi
 fi
 
 PRIVATE_NETWORK_IP=${PRIVATE_NETWORK_IP} mutagen-compose -f "$basedir"/docker-compose.yml up --build --detach
