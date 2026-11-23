@@ -839,6 +839,9 @@ function Invoke-Back {
 function Build-Installer {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $form = New-Object System.Windows.Forms.Form
+    # The layout is in pixels at 100% display scaling; this scales it for other settings
+    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF(96, 96)
+    $form.AutoScaleMode = 'Dpi'
     $form.Text = 'chutvrc Setup'
     $form.ClientSize = New-Object System.Drawing.Size(664, 510)
     $form.FormBorderStyle = 'FixedDialog'
@@ -927,10 +930,19 @@ function Start-Installer {
     if (-not $mutex.WaitOne(0)) { return }
     try {
         if (-not (Test-Path $script:LogDir)) { [void](New-Item -ItemType Directory -Path $script:LogDir) }
-        Add-Type -Namespace Chutvrc -Name Display -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+        Add-Type -Namespace Chutvrc -Name Display -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr window, int command);
+'@
         [void][Chutvrc.Display]::SetProcessDPIAware()
         Update-SessionPath
         $form = Build-Installer
+        # The launcher starts this process hidden so no console shows, and Windows applies that to the
+        # first window shown. The second request is honoured.
+        $form.Add_Shown({
+            [void][Chutvrc.Display]::ShowWindow($script:UI.Form.Handle, 5)
+            $script:UI.Form.Activate()
+        })
         Initialize-WelcomePage
         Show-Page 'welcome'
         $script:UI.Timer.Start()
@@ -940,4 +952,5 @@ function Start-Installer {
     }
 }
 
-if ($MyInvocation.InvocationName -ne '.') { Start-Installer }
+# powershell -File also dot-sources a script, so that cannot tell a real start from a test loading the functions
+if (-not $env:CHUTVRC_SETUP_NO_START) { Start-Installer }
