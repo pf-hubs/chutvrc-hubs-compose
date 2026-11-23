@@ -18,14 +18,14 @@ chutvrc is a fork of the [Hubs](https://github.com/Hubs-Foundation) online 3D co
   `.glb`). Tested mainly with Meta Quest 3 controller and bare-hand tracking.
 - **Independent BitECS implementation** — avatar management built on BitECS,
   separate from Hubs' official BitECS work (a future merge is planned).
-- **Alternative WebRTC SFU** — Sora support in addition to Dialog, for
-  environments where running and maintaining Dialog is impractical. The SFU is
-  selectable per room from the admin panel.
+- **Alternative WebRTC SFU** — Sora and LiveKit support in addition to Dialog,
+  for environments where running and maintaining Dialog is impractical. The SFU
+  is selectable per room.
 - **Avatar transform sync over WebRTC DataChannel** — body language travels
-  alongside voice on the same protocol. Works with both Dialog and Sora.
+  alongside voice on the same protocol. Works with Dialog, Sora and LiveKit.
 - **Public speaking mode** — broadcast a single user's audio and avatar to
   multiple rooms, useful for delivering speeches beyond a single room's
-  capacity.
+  capacity. Off by default; see [After setup](#after-setup).
 
 For the full feature list and screenshots, see the
 [chutvrc client README](services/hubs/README.md).
@@ -70,6 +70,80 @@ If you re-run the setup script later, it will detect this and skip the heavy
 > (`mkcert` with the LAN IP added as a SAN, or `certbot` for a real domain).
 > Public-domain hosting is supported on macOS and Linux only — Windows users
 > should run it from WSL2 or follow `MANUAL_SETUP.md` on a Linux server.
+
+---
+
+## After setup
+
+A new instance runs with Dialog for voice and video, but it has no scenes or
+avatars, and chutvrc's optional features are off. Sign in as the admin and open
+`https://<your-host>:4000/admin` for the steps below.
+
+### Add scenes and avatars
+
+Until you add content, new rooms open in a plain placeholder environment and
+everyone starts with the default duck avatar.
+
+**Avatars**
+
+1. In a room, open **More > Change Name & Avatar > Change Avatar > Create
+   Avatar** and upload a `.glb` file. Rename a VRM file from `.vrm` to `.glb`
+   first.
+2. In the admin panel, open **Avatars** and press **Approve** on it.
+3. Open **Approved avatars**. Press **Feature** to show it in everyone's avatar
+   list. To give it to new visitors, edit it and add the tag `default`.
+
+**Scenes**
+
+1. Create and publish a scene in the editor at `https://<your-host>:4000/spoke`.
+2. In the admin panel, open **Scenes** and press **Approve** on it.
+3. Open **Approved scenes**. Press **Feature** to list it. To use it for new
+   rooms, edit it and add the tag `default`.
+
+You can also copy scenes and avatars from another Hubs server: paste their URLs
+into **Import Content**.
+
+### Turn on chutvrc's features
+
+In the admin panel, open **App Settings > Features**, switch on what you want,
+and save. After about 15 seconds, reload the room. The features appear under
+**Features** on the room's bottom toolbar. That button is hidden while none of
+them is available.
+
+| Setting          | What it adds                                         | Who sees it |
+| ---------------- | ---------------------------------------------------- | ----------- |
+| Enable Recording | Records the room's data and saves it to your device  | Everyone    |
+| Enable Broadcast | Speaking across rooms (public speaking mode)         | Room owners |
+| Enable N-impro   | The N-impro game                                     | Everyone    |
+
+To broadcast from room A to room B:
+
+1. Make sure both rooms use the same media server, either Dialog or LiveKit.
+2. An owner of room A chooses **Features > Broadcast > Start Speaking**.
+3. An owner of room B chooses **Features > Broadcast > Start Listening**.
+   Everyone in room B then hears and sees the speaker.
+
+### Use LiveKit or Sora (optional)
+
+Dialog needs no configuration. To use another media server, open **Server
+Settings > WEBRTC** in the admin panel:
+
+- **LiveKit:** fill in the server URL (`wss://...`), API key and API secret from
+  your own LiveKit server or LiveKit Cloud project.
+- **Sora:** fill in the project ID and bearer token from your Sora Cloud
+  contract.
+
+**Default WebRTC SFU** sets the server for new rooms. A room owner can change
+it under **More > Room Info and Settings**.
+
+### Set up email
+
+Sign-in links are sent by email. Until you fill in **Server Settings > Email**,
+they appear only in the server log:
+
+```bash
+docker compose logs reticulum | grep auth_token
+```
 
 ---
 

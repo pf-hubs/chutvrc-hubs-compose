@@ -159,6 +159,9 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 
 # Linux
 ip -4 addr show | grep "inet " | grep -v 127.0.0.1
+
+# Windows (look for "IPv4 Address" under the adapter you are connected with)
+ipconfig
 ```
 
 **`.env`** — create the file at the repository root:
@@ -167,7 +170,8 @@ ip -4 addr show | grep "inet " | grep -v 127.0.0.1
 HUBS_HOST=192.168.1.100
 ```
 
-Replace `192.168.1.100` with your actual LAN IP.
+Replace `192.168.1.100` with your actual LAN IP. Voice and video use the same
+address. Set `PRIVATE_NETWORK_IP` as well only if they must use a different one.
 
 **Hosts file** — not needed (using an IP address directly).
 
@@ -357,6 +361,11 @@ credentials and any other settings required for your environment.
 
 - **SMTP** (configure the email account used to send sign-in authentication emails): Side menu → "Server Settings" → "Email" tab
 - **WebRTC SFU** (Dialog, Sora, LiveKit, etc.): Side menu → "Server Settings" → "WEBRTC" tab
+- **Recording, Broadcast and N-impro** (off by default): Side menu → "App Settings" → "Features" tab
+
+A new instance has no scenes or avatars. See
+[After setup](README.md#after-setup) in the README for adding them and for
+what each setting above does.
 
 ---
 

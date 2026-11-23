@@ -541,7 +541,9 @@ guided_post_setup() {
     echo "------------------------------------------------------------"
     echo "  1. Open $base_url/admin"
     echo "  2. Side menu > Server Settings > Email tab — configure SMTP"
-    echo "  3. Side menu > Server Settings > WEBRTC tab — configure SFU"
+    echo "  3. Side menu > Server Settings > WEBRTC tab — configure SFU (optional; Dialog works as is)"
+    echo "  4. Side menu > App Settings > Features tab — turn on Recording, Broadcast, N-impro"
+    echo "  5. Add scenes and avatars: see 'After setup' in README.md"
     prompt_and_wait "Configure admin settings, then press Enter to finish"
 
     # Done
