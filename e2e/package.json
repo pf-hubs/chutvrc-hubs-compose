@@ -1,0 +1,20 @@
+{
+  "name": "chutvrc-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Simulated-client tests for chutvrc: Playwright drives browsers that join rooms on the local stack",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "list": "playwright test --list",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "^24.0.0",
+    "iwer": "^2.8.0",
+    "obs-websocket-js": "^5.0.8",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

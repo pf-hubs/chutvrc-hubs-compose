@@ -103,6 +103,10 @@ services:
       DIALOG_HOSTNAME: "${HUBS_HOST:-hubs.local}"
       HUBS_HOST: "${HUBS_HOST:-hubs.local}"
       DIALOG_PORT: 4443
+      # Erlang keeps its own clock and, by default, only creeps toward the system clock after that jumps
+      # (a host that slept, a virtual machine whose clock was set again). Tokens are then stamped minutes
+      # in the past and Dialog refuses them as expired. This lets Erlang's clock jump with the system's.
+      ERL_FLAGS: "+C multi_time_warp"
       HUBS_ADMIN_INTERNAL_HOSTNAME: hubs-admin
       HUBS_CLIENT_INTERNAL_HOSTNAME: hubs-client
       POSTGREST_INTERNAL_HOSTNAME: postgrest

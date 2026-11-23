@@ -1,0 +1,108 @@
+{
+  "host": "hubs.local",
+  "scene": {
+    "sceneId": "",
+    "name": "Crater e2e",
+    "modelUrl": "",
+    "source": "services/spoke/test/fixtures/test-assets/crater.glb, wrapped by assets/generate.ts"
+  },
+  "scenes": {
+    "crater": {
+      "sceneId": "",
+      "name": "Crater e2e",
+      "modelUrl": "",
+      "source": "services/spoke/test/fixtures/test-assets/crater.glb, wrapped by assets/generate.ts"
+    },
+    "nimpro": {
+      "sceneId": "",
+      "name": "N-impro e2e",
+      "modelUrl": "",
+      "source": "services/spoke/test/fixtures/test-assets/crater.glb with the N-impro set, made by assets/generate.ts"
+    },
+    "bitecs": {
+      "sceneId": "",
+      "name": "bitecs e2e",
+      "modelUrl": "",
+      "source": "services/spoke/test/fixtures/test-assets/crater.glb with a media frame, made by assets/generate.ts"
+    }
+  },
+  "accounts": {
+    "admin": {
+      "email": "admin@example.com",
+      "accountId": "",
+      "isAdmin": true
+    },
+    "member1": {
+      "email": "member1@example.com",
+      "accountId": "",
+      "isAdmin": false
+    },
+    "member2": {
+      "email": "member2@example.com",
+      "accountId": "",
+      "isAdmin": false
+    }
+  },
+  "rooms": {
+    "dialog-main": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "livekit-main": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "livekit",
+      "sceneId": ""
+    },
+    "switch": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "move-target-dialog": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "move-target-livekit": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "livekit",
+      "sceneId": ""
+    },
+    "speak-x": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "listen-y": {
+      "hubId": "",
+      "owner": "member1",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "listen-z": {
+      "hubId": "",
+      "owner": "member2",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "nimpro": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    },
+    "bitecs": {
+      "hubId": "",
+      "owner": "admin",
+      "mediaServer": "dialog",
+      "sceneId": ""
+    }
+  }
+}

@@ -1,0 +1,443 @@
+// The QUEST profile's emulated devices (plan 2.1, 2.4): IWER installed before the page's own scripts, and a
+// pose timeline player that moves the emulated headset and controllers once a frame.
+//
+// A timeline of keyframes gives the headset's and each controller's position and quaternion (in the XR
+// reference space, metres), the controllers' connected flag, thumbstick and button values; the player blends
+// poses between keyframes (positions linearly, rotations along the shortest arc), steps the flags, sticks
+// and buttons at the keyframe that sets them, and holds the last keyframe. T3.5, T4.3 and T4.8 use the small
+// timelines below; the M1 to M10 battery and the converted recordings are in motions/ (T5).
+//
+// The poses are the emulated devices' own. What the client sends differs by fixed offsets (TRIALS.md, step
+// 7): its head pose is the left eye's (the viewer pose moved 3.15 cm along the headset's x), its controller
+// pose is the target ray moved by the Quest Touch offset of webxr-controller.js. `deviceFromClient` turns a
+// pose the client should send into the device pose that makes it send that.
+//
+// Two things the emulation needs on this PC (TRIALS.md, trial b):
+// - installRuntime({ forceInstall: true }): Edge has its own navigator.xr, and IWER otherwise only warns.
+// - IWER runs its device frames on window.requestAnimationFrame. On entering VR in a mobile headset the
+//   client's PDF fix (media-pdf-oculus-fix.js) replaces window.requestAnimationFrame with the XR session's,
+//   so IWER's next frame would wait on the session it drives ("Maximum call stack size exceeded", both loops
+//   stop). IWER therefore gets the browser's own functions, taken before any page script runs; the page
+//   keeps its patch. The player runs on the same native function. A real Quest Browser does not need this.
+import fs from "node:fs";
+import path from "node:path";
+import type { Page } from "@playwright/test";
+import { E2E } from "../lib/env";
+
+/** The Meta Quest 3 browser's user agent: AFRAME.utils.device.isMobileVR() is true with it */
+export const QUEST3_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.x.x.x Chrome/126.0.6478.122 VR Safari/537.36";
+
+export type Vec3 = [number, number, number];
+export type Quat = [number, number, number, number];
+export type DevicePose = { pos: Vec3; quat: Quat };
+/**
+ * `stick` is the thumbstick's [x, y] (-1 to 1; y -1 is forward), `buttons` IWER button ids with their
+ * values (e.g. { trigger: 1 }); both are applied when the keyframe that gives them is reached
+ */
+export type ControllerPose = DevicePose & { connected?: boolean; stick?: [number, number]; buttons?: Record<string, number> };
+
+/** One keyframe: `t` in milliseconds from the start; a part left out is blended from the keyframes that have it */
+export type Keyframe = { t: number; head?: DevicePose; left?: ControllerPose; right?: ControllerPose };
+export type Timeline = { name: string; keyframes: Keyframe[] };
+
+/** What the player set on one frame: the emulated devices' pose, the truth a test compares against */
+export type AppliedFrame = { t: number; head: DevicePose; left: ControllerPose; right: ControllerPose };
+
+/**
+ * The Quest Browser does not run window.requestAnimationFrame callbacks while an immersive session is
+ * presented (the premise of the client's own PDF fix, media-pdf-oculus-fix.js); they run again once the
+ * session has ended. Edge does run them, and with plain IWER the page then behaves unlike a headset: the
+ * renderer's window loop, which three.js stops when the session starts, is not stopped (the PDF fix has
+ * already replaced window.cancelAnimationFrame by then, so the cancel goes to the XR session), carries on
+ * from the window and then on the session, and the scene ticks twice per frame; when the session ends that
+ * loop ends with it and the scene stops drawing. Step 6 found this (T4.8); the profile therefore holds
+ * window frame callbacks while IWER's session is active, as the headset's browser does.
+ * E2E_QUEST_WINDOW_RAF=run turns this off, to show the difference.
+ */
+const QUEST_WINDOW_FRAMES = `
+(() => {
+  const nativeRaf = window.__e2eNativeRaf, nativeCaf = window.__e2eNativeCaf;
+  const immersive = () => !!(window.xrDevice && window.xrDevice.activeSession);
+  const pending = new Map();
+  let ids = 0;
+  window.requestAnimationFrame = function requestAnimationFrame(callback) {
+    const id = ++ids;
+    const run = time => {
+      if (immersive()) {
+        pending.set(id, nativeRaf(run));
+        return;
+      }
+      pending.delete(id);
+      callback(time);
+    };
+    pending.set(id, nativeRaf(run));
+    return id;
+  };
+  window.cancelAnimationFrame = function cancelAnimationFrame(id) {
+    const native = pending.get(id);
+    if (native !== undefined) nativeCaf(native);
+    pending.delete(id);
+  };
+  window.__e2eHeldWindowFrames = () => pending.size;
+})();`;
+
+/** The player, in page code; part of the QUEST profile's init script */
+const PLAYER = `
+(() => {
+  const raf = window.__e2eNativeRaf;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const slerp = (a, b, t) => {
+    let [ax, ay, az, aw] = a;
+    let [bx, by, bz, bw] = b;
+    let cos = ax * bx + ay * by + az * bz + aw * bw;
+    if (cos < 0) { bx = -bx; by = -by; bz = -bz; bw = -bw; cos = -cos; }
+    if (cos > 0.9995) {
+      const q = [lerp(ax, bx, t), lerp(ay, by, t), lerp(az, bz, t), lerp(aw, bw, t)];
+      const n = Math.hypot(...q);
+      return q.map(v => v / n);
+    }
+    const angle = Math.acos(cos);
+    const s = Math.sin(angle);
+    const wa = Math.sin((1 - t) * angle) / s;
+    const wb = Math.sin(t * angle) / s;
+    return [ax * wa + bx * wb, ay * wa + by * wb, az * wa + bz * wb, aw * wa + bw * wb];
+  };
+  /** The part's pose at time t from the keyframes that give it; null when none does */
+  const partAt = (keyframes, part, t) => {
+    let before = null, after = null;
+    for (const k of keyframes) {
+      if (!k[part]) continue;
+      if (k.t <= t) before = k;
+      else { after = k; break; }
+    }
+    if (!before && !after) return null;
+    if (!before) return after[part];
+    if (!after || after.t === before.t) return before[part];
+    const f = (t - before.t) / (after.t - before.t);
+    const a = before[part], b = after[part];
+    return {
+      pos: a.pos.map((v, i) => lerp(v, b.pos[i], f)),
+      quat: slerp(a.quat, b.quat, f),
+      // The connected flag, the thumbstick and the buttons step: they change at the keyframe that changes them
+      connected: a.connected,
+      stick: a.stick,
+      buttons: a.buttons
+    };
+  };
+  let timeline = null, startedAt = 0, duration = 0, applied = [], resolveEnd = null, playing = false;
+  let sticks = { left: [0, 0], right: [0, 0] };
+  const read = obj => ({ pos: [obj.position.x, obj.position.y, obj.position.z], quat: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w] });
+  const set = (obj, pose) => {
+    obj.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
+    obj.quaternion.set(pose.quat[0], pose.quat[1], pose.quat[2], pose.quat[3]);
+  };
+  const apply = t => {
+    const device = window.xrDevice;
+    const head = partAt(timeline.keyframes, "head", t);
+    if (head) set(device, head);
+    for (const side of ["left", "right"]) {
+      const pose = partAt(timeline.keyframes, side, t);
+      if (!pose) continue;
+      const controller = device.controllers[side];
+      set(controller, pose);
+      if (pose.connected !== undefined && controller.connected !== pose.connected) controller.connected = pose.connected;
+      const stick = pose.stick || [0, 0];
+      const lastStick = sticks[side];
+      if (stick[0] !== lastStick[0] || stick[1] !== lastStick[1]) {
+        controller.updateAxes("thumbstick", stick[0], stick[1]);
+        sticks[side] = stick;
+      }
+      if (pose.buttons) for (const [id, value] of Object.entries(pose.buttons)) controller.updateButtonValue(id, value);
+    }
+    const entry = { t: performance.timeOrigin + performance.now(), head: read(device) };
+    for (const side of ["left", "right"]) entry[side] = { ...read(device.controllers[side]), connected: device.controllers[side].connected };
+    applied.push(entry);
+  };
+  /** Thumbsticks back to the middle once a timeline ends or stops, as a released stick springs back */
+  const releaseSticks = () => {
+    const device = window.xrDevice;
+    for (const side of ["left", "right"]) {
+      if (sticks[side][0] || sticks[side][1]) device.controllers[side].updateAxes("thumbstick", 0, 0);
+    }
+    sticks = { left: [0, 0], right: [0, 0] };
+  };
+  const frame = () => {
+    if (!playing) return;
+    const t = performance.now() - startedAt;
+    apply(Math.min(t, duration));
+    if (t >= duration) {
+      playing = false;
+      releaseSticks();
+      if (resolveEnd) resolveEnd(applied.length);
+      return;
+    }
+    raf(frame);
+  };
+  window.__e2eMotion = {
+    play(tl) {
+      if (!window.xrDevice) throw new Error("no emulated device (the QUEST profile installs IWER)");
+      timeline = tl;
+      duration = tl.keyframes.length ? tl.keyframes[tl.keyframes.length - 1].t : 0;
+      startedAt = performance.now();
+      playing = true;
+      return new Promise(resolve => { resolveEnd = resolve; raf(frame); });
+    },
+    stop() { playing = false; releaseSticks(); if (resolveEnd) resolveEnd(applied.length); },
+    get playing() { return playing; },
+    takeApplied() { const a = applied; applied = []; return a; },
+    pose() {
+      const device = window.xrDevice;
+      if (!device) return null;
+      const out = { head: read(device) };
+      for (const side of ["left", "right"]) out[side] = { ...read(device.controllers[side]), connected: device.controllers[side].connected };
+      return out;
+    }
+  };
+})();`;
+
+/** The QUEST profile's init script: IWER on the browser's own frame function, a Quest 3 device installed, the player */
+function buildIwerInit(): string {
+  const source = fs.readFileSync(path.join(E2E, "node_modules", "iwer", "build", "iwer.min.js"), "utf8");
+  const patched = source.replaceAll("globalThis.requestAnimationFrame(", "__iwerRaf(").replaceAll("globalThis.cancelAnimationFrame(", "__iwerCaf(");
+  if (patched === source) throw new Error("IWER's build no longer calls globalThis.requestAnimationFrame: check clients/motion.ts against the installed iwer");
+  return [
+    "const __iwerRaf = window.requestAnimationFrame.bind(window), __iwerCaf = window.cancelAnimationFrame.bind(window);",
+    "window.__e2eNativeRaf = __iwerRaf; window.__e2eNativeCaf = __iwerCaf;",
+    patched,
+    "(() => { const device = new IWER.XRDevice(IWER.metaQuest3); device.installRuntime({ forceInstall: true }); window.xrDevice = device; })();",
+    process.env.E2E_QUEST_WINDOW_RAF === "run" ? "" : QUEST_WINDOW_FRAMES,
+    PLAYER
+  ].join("\n");
+}
+
+/** Read once when the profiles are loaded (the IWER build comes from node_modules) */
+export const IWER_INIT: string = buildIwerInit();
+
+// ---------- Poses ----------
+
+const DEG = Math.PI / 180;
+
+/** A quaternion from yaw (about y), pitch (about x) and roll (about z) in degrees, in the YXZ order three.js uses */
+export function yawPitchRoll(yawDeg: number, pitchDeg = 0, rollDeg = 0): Quat {
+  const [x, y, z] = [pitchDeg * DEG, yawDeg * DEG, rollDeg * DEG];
+  const [c1, c2, c3] = [Math.cos(x / 2), Math.cos(y / 2), Math.cos(z / 2)];
+  const [s1, s2, s3] = [Math.sin(x / 2), Math.sin(y / 2), Math.sin(z / 2)];
+  return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
+}
+
+/**
+ * What the client sends against what the devices report (TRIALS.md, step 7), in the device's own frame:
+ * the head pose is the left eye's, the controller pose the target ray moved by webxr-controller.js's
+ * LEFT_HAND_OFFSET and RIGHT_HAND_OFFSET (offsets for the Quest Touch controllers)
+ */
+export const CLIENT_OFFSETS: Record<"head" | "left" | "right", Vec3> = {
+  head: [-0.0315, 0, 0],
+  left: [-0.025, -0.03, 0.12],
+  right: [0.025, -0.03, 0.12]
+};
+
+/** Turns a vector by a unit quaternion */
+export function rotate(q: Quat, v: Vec3): Vec3 {
+  const [x, y, z, w] = q;
+  const [vx, vy, vz] = v;
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
+}
+
+/** The device pose that makes the client send `pose` for that part (the inverse of CLIENT_OFFSETS) */
+export function deviceFromClient<P extends DevicePose>(part: "head" | "left" | "right", pose: P): P {
+  const offset = rotate(pose.quat, CLIENT_OFFSETS[part]);
+  return { ...pose, pos: [pose.pos[0] - offset[0], pose.pos[1] - offset[1], pose.pos[2] - offset[2]] };
+}
+
+/** What the client sends for a device pose of that part */
+export function clientFromDevice<P extends DevicePose>(part: "head" | "left" | "right", pose: P): P {
+  const offset = rotate(pose.quat, CLIENT_OFFSETS[part]);
+  return { ...pose, pos: [pose.pos[0] + offset[0], pose.pos[1] + offset[1], pose.pos[2] + offset[2]] };
+}
+
+/** Standing still, looking ahead, controllers held in front at waist height */
+export const REST: Required<Pick<Keyframe, "head" | "left" | "right">> = {
+  head: { pos: [0, 1.6, 0], quat: [0, 0, 0, 1] },
+  left: { pos: [-0.25, 1.2, -0.35], quat: [0, 0, 0, 1], connected: true },
+  right: { pos: [0.25, 1.2, -0.35], quat: [0, 0, 0, 1], connected: true }
+};
+
+/**
+ * A timeline sampled from a function of time: `pose(t)` gives the parts at t milliseconds (a part left out
+ * stays at REST); sampled every `stepMs`, so the player's blending between samples follows the function
+ */
+export function sampled(name: string, durationMs: number, pose: (t: number) => Partial<Keyframe>, stepMs = 50): Timeline {
+  const keyframes: Keyframe[] = [];
+  for (let t = 0; t <= durationMs + 1e-6; t += stepMs) keyframes.push({ ...REST, ...pose(t), t });
+  return { name, keyframes };
+}
+
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+/** T3.5: a speaker who turns the head from side to side and moves both hands (right up and down, left forward and back) */
+export function speakerGestures(durationMs: number): Timeline {
+  return sampled("speaker gestures", durationMs, t => {
+    const s = t / 1000;
+    return {
+      head: { pos: REST.head.pos, quat: yawPitchRoll(30 * Math.sin((2 * Math.PI * s) / 4), 10 * Math.sin((2 * Math.PI * s) / 3)) },
+      left: { ...REST.left, pos: add(REST.left.pos, [0, 0, -0.2 * Math.sin((2 * Math.PI * s) / 2.5)]) },
+      right: { ...REST.right, pos: add(REST.right.pos, [0, 0.2 + 0.2 * Math.sin((2 * Math.PI * s) / 2), 0]) }
+    };
+  });
+}
+
+/** T4.3: the right hand moving at `handCmPerSecond` to the side and the head turning at `headDegPerSecond` */
+export function slowDrift(durationMs: number, handCmPerSecond = 1, headDegPerSecond = 2): Timeline {
+  return sampled(
+    "slow drift",
+    durationMs,
+    t => ({
+      head: { pos: REST.head.pos, quat: yawPitchRoll((headDegPerSecond * t) / 1000) },
+      right: { ...REST.right, pos: add(REST.right.pos, [(handCmPerSecond / 100) * (t / 1000), 0, 0]) }
+    }),
+    100
+  );
+}
+
+/** Holds one pose: every part at REST unless given, the connected flags as given */
+export function hold(name: string, durationMs: number, parts: Partial<Keyframe> = {}): Timeline {
+  return { name, keyframes: [{ ...REST, ...parts, t: 0 }, { ...REST, ...parts, t: durationMs }] };
+}
+
+// ---------- Driving the page ----------
+
+/** Plays a timeline on the QUEST client's emulated devices; resolves when it has played through */
+export async function playTimeline(page: Page, timeline: Timeline): Promise<void> {
+  await page.evaluate(tl => (window as any).__e2eMotion.play(tl), timeline);
+}
+
+/** Starts a timeline without waiting for it */
+export async function startTimeline(page: Page, timeline: Timeline): Promise<void> {
+  await page.evaluate(tl => {
+    (window as any).__e2eMotion.play(tl);
+  }, timeline);
+}
+
+export function stopTimeline(page: Page): Promise<void> {
+  return page.evaluate(() => (window as any).__e2eMotion.stop());
+}
+
+/** The frames the player set since the last call (the emulated devices' truth) */
+export function takeApplied(page: Page): Promise<AppliedFrame[]> {
+  return page.evaluate(() => (window as any).__e2eMotion.takeApplied());
+}
+
+/** The emulated devices' pose now */
+export function devicePose(page: Page): Promise<{ head: DevicePose; left: ControllerPose; right: ControllerPose } | null> {
+  return page.evaluate(() => (window as any).__e2eMotion?.pose() ?? null);
+}
+
+/** Connects or disconnects one emulated controller */
+export function setControllerConnected(page: Page, side: "left" | "right", connected: boolean): Promise<void> {
+  return page.evaluate(({ side, connected }) => {
+    (window as any).xrDevice.controllers[side].connected = connected;
+  }, { side, connected });
+}
+
+/** Whether the page presents an immersive session (renderer.xr.isPresenting) */
+export function isPresenting(page: Page): Promise<boolean> {
+  return page.evaluate(() => !!(window as any).AFRAME?.scenes?.[0]?.renderer?.xr?.isPresenting);
+}
+
+/** Ends the immersive session as the headset's own exit does; resolves once the scene has left VR */
+export async function exitVr(page: Page, timeout = 15_000) {
+  await page.evaluate(() => (window as any).AFRAME.scenes[0].exitVR());
+  await page.waitForFunction(() => !(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout });
+}
+
+/**
+ * Asks the scene for the immersive session again; resolves once it presents and, unless `capture` is false,
+ * once both triggers have answered the height capture every new session asks for (answerCapturePrompt)
+ */
+export async function enterVr(page: Page, timeout = 15_000, opts: { capture?: boolean } = {}) {
+  await page.evaluate(() => (window as any).AFRAME.scenes[0].enterVR());
+  await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout, polling: 100 });
+  if (opts.capture !== false) await answerCapturePrompt(page);
+}
+
+// ---------- The height capture (src/avatar/calibration/vr-capture.ts, press-capture.ts) ----------
+
+/**
+ * Where the headset's height capture stands, read from what the page shows: "none" on a build without it (the
+ * previous build), "asking" while its prompt waits for the triggers, "idle" once no capture is under way (the
+ * in-world button that asks for another shows then), "starting" before either (or without a saved height).
+ * The prompt goes on showing the captured height for 1.5 s, so it counts only while the button is hidden.
+ */
+export type CaptureState = "none" | "starting" | "asking" | "idle";
+
+export function captureState(page: Page): Promise<CaptureState> {
+  return page.evaluate(() => {
+    const button = document.querySelector("[body-capture-button]") as any;
+    if (!button) return "none" as const;
+    if (button.object3D.visible) return "idle" as const;
+    // The prompt: the follow-in-fov entity holding a text panel drawn over everything (text-panel.ts)
+    const prompt = [...document.querySelectorAll("[follow-in-fov]")].find((e: any) => e.object3D.children.some((c: any) => c.renderOrder === 10000)) as any;
+    return prompt?.object3D.visible ? ("asking" as const) : ("starting" as const);
+  });
+}
+
+/** Both emulated triggers down (1) or up (0) on the same frame */
+export function setBothTriggers(page: Page, value: 0 | 1): Promise<void> {
+  return page.evaluate(value => {
+    const { left, right } = (window as any).xrDevice.controllers;
+    left.updateButtonValue("trigger", value);
+    right.updateButtonValue("trigger", value);
+  }, value);
+}
+
+/** One press of both triggers together, held for a few frames, as a person presses them */
+export async function pressBothTriggers(page: Page, holdMs = 200) {
+  await setBothTriggers(page, 1);
+  await page.waitForTimeout(holdMs);
+  await setBothTriggers(page, 0);
+}
+
+/**
+ * Looks straight ahead, as the prompt asks, when no timeline is holding the headset and it is tilted more than 15°
+ * (the capture refuses a press beyond 20°): keeps its yaw and position. True when it had to level the headset.
+ */
+function levelHeadset(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const w = window as any;
+    if (w.__e2eMotion?.playing) return false;
+    const q = w.xrDevice.quaternion;
+    // The headset's up axis against the vertical: its y component is cos(tilt)
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+    if (upY >= Math.cos((15 * Math.PI) / 180)) return false;
+    const yaw = Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y));
+    q.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
+    return true;
+  });
+}
+
+/**
+ * Waits for the capture's prompt and presses both triggers until it has taken the height, with the headset where
+ * the test holds it, levelled first if it was left tilted. True when no capture is left waiting; false on a build
+ * without the capture, or when it did not end within `timeout`.
+ */
+export async function answerCapturePrompt(page: Page, timeout = 15_000): Promise<boolean> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const state = await captureState(page);
+    if (state === "none") return false;
+    if (state === "idle") return true;
+    if (state === "asking") {
+      // The height is the median of the last half second of level samples
+      if (await levelHeadset(page)) await page.waitForTimeout(600);
+      await pressBothTriggers(page);
+      await page.waitForTimeout(300);
+    } else {
+      await page.waitForTimeout(100);
+    }
+  }
+  return (await captureState(page)) === "idle";
+}

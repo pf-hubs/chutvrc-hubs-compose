@@ -1,0 +1,22 @@
+node_modules/
+evidence/
+test-results/
+playwright-report/
+
+# Local settings and room ids of this machine (examples are committed next to them)
+.env.local
+fixtures.json
+
+# Signed-in browser profiles: they hold session cookies
+profiles/
+
+# Generated or downloaded assets (assets/generate.ts and assets/SOURCES.md say how to get them back);
+# small files under about 200 KB may still be committed next to them
+assets/clips/
+assets/scenes/
+assets/avatars/*.vrm
+assets/avatars/*.glb
+assets/media/
+
+# Timelines the motion scripts write (motions/battery.ts, the converters); the suite builds them itself
+motions/*.json

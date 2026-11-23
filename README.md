@@ -18,40 +18,59 @@ chutvrc is a fork of the [Hubs](https://github.com/Hubs-Foundation) online 3D co
   `.glb`). Tested mainly with Meta Quest 3 controller and bare-hand tracking.
 - **Independent BitECS implementation** — avatar management built on BitECS,
   separate from Hubs' official BitECS work (a future merge is planned).
-- **Alternative WebRTC SFU** — Sora support in addition to Dialog, for
-  environments where running and maintaining Dialog is impractical. The SFU is
-  selectable per room from the admin panel.
+- **Alternative WebRTC SFU** — Sora and LiveKit support in addition to Dialog,
+  for environments where running and maintaining Dialog is impractical. The SFU
+  is selectable per room.
 - **Avatar transform sync over WebRTC DataChannel** — body language travels
-  alongside voice on the same protocol. Works with both Dialog and Sora.
+  alongside voice on the same protocol. Works with Dialog, Sora and LiveKit.
 - **Public speaking mode** — broadcast a single user's audio and avatar to
   multiple rooms, useful for delivering speeches beyond a single room's
-  capacity.
+  capacity. Off by default; see [After setup](#after-setup).
 
 For the full feature list and screenshots, see the
 [chutvrc client README](services/hubs/README.md).
 
 ---
 
-## Quick Start (double-click) — one-time setup
-
-The fastest way to get a single-device development instance running is the
-one-click setup script for your platform. **Run this only once**, the very
-first time you set up the project. After that, use the daily commands in the
-next section.
+## Start here
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
    (or Docker Engine on Linux) and start it.
 2. Clone this repository.
-3. Run the setup script for your platform:
-   - **macOS:** double-click `local-setup-mac.command` (in Finder)
-   - **Windows:** double-click `local-setup-windows.bat` (in Explorer)
-   - **Linux:** open a terminal and run `./local-setup-linux.sh`
+3. Run the setup file for your system, in this folder:
 
-The script installs the remaining dependencies (`mutagen`, `mutagen-compose`,
-`mkcert`), clones each service from `pf-hubs/chutvrc-*` into `services/`,
-builds the Docker images, generates SSL certificates with `mkcert`,
-configures your hosts file, and starts everything. It then guides you through
-signing in and promoting your account to admin.
+| System  | Run                                                                  |
+| ------- | -------------------------------------------------------------------- |
+| Windows | Double-click **`chutvrc-windows-setup.bat`** (a graphical installer) |
+| macOS   | Double-click **`chutvrc-mac-setup.command`**                         |
+| Linux   | In a terminal, run **`./chutvrc-linux-setup.sh`**                    |
+
+**Run this only once**, the first time you set up the project. After that, use
+the daily commands [below](#daily-usage). On Windows you can also run the same
+file again to start chutvrc.
+
+The setup installs what it can of the remaining dependencies (`mkcert`, and
+`mutagen` and `mutagen-compose` on macOS and Linux; on Windows the installer
+shows where to get Mutagen), clones each service from `pf-hubs/chutvrc-*` into
+`services/`, builds the Docker images, generates SSL certificates with
+`mkcert`, configures your hosts file, and starts everything. It then guides you
+through signing in and promoting your account to admin.
+
+<details>
+<summary>What is in this repository</summary>
+
+| Path                 | Contents                                                     |
+| -------------------- | ------------------------------------------------------------ |
+| `chutvrc-*-setup.*`  | The setup to run first                                       |
+| `bin/`               | Daily commands: `bin/up`, `bin/down`, `bin/reset`, and so on |
+| `docs/`              | Manual setup, certificates, maintenance notes, decisions     |
+| `scripts/`           | What the setup runs, and double-click start scripts          |
+| `services/`          | The chutvrc services, cloned by the setup                    |
+| `k8s/`               | Kubernetes deployment                                        |
+| `e2e/`               | Browser tests                                                |
+| `dockerfiles/`, `files/`, `docker-compose*.yml` | How the containers are built and run |
+
+</details>
 
 When the guided setup finishes, chutvrc is available at
 **https://hubs.local:4000**.
@@ -65,11 +84,85 @@ If you re-run the setup script later, it will detect this and skip the heavy
 > access** (other devices on the same network reach chutvrc via your
 > machine's IP) and **public-domain hosting** (a real DNS-resolvable domain
 > on a server). Populate `.env` (see [`.env.example`](.env.example) and
-> [`MANUAL_SETUP.md`](MANUAL_SETUP.md)) **before** running the script. The
+> [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md)) **before** running the script. The
 > script reads `HUBS_HOST` from `.env` and dispatches to the right cert flow
 > (`mkcert` with the LAN IP added as a SAN, or `certbot` for a real domain).
 > Public-domain hosting is supported on macOS and Linux only — Windows users
-> should run it from WSL2 or follow `MANUAL_SETUP.md` on a Linux server.
+> should run it from WSL2 or follow `docs/MANUAL_SETUP.md` on a Linux server.
+
+---
+
+## After setup
+
+A new instance runs with Dialog for voice and video, but it has no scenes or
+avatars, and chutvrc's optional features are off. Sign in as the admin and open
+`https://<your-host>:4000/admin` for the steps below.
+
+### Add scenes and avatars
+
+Until you add content, new rooms open in a plain placeholder environment and
+everyone starts with the default duck avatar.
+
+**Avatars**
+
+1. In a room, open **More > Change Name & Avatar > Change Avatar > Create
+   Avatar** and upload a `.glb` file. Rename a VRM file from `.vrm` to `.glb`
+   first.
+2. In the admin panel, open **Avatars** and press **Approve** on it.
+3. Open **Approved avatars**. Press **Feature** to show it in everyone's avatar
+   list. To give it to new visitors, edit it and add the tag `default`.
+
+**Scenes**
+
+1. Create and publish a scene in the editor at `https://<your-host>:4000/spoke`.
+2. In the admin panel, open **Scenes** and press **Approve** on it.
+3. Open **Approved scenes**. Press **Feature** to list it. To use it for new
+   rooms, edit it and add the tag `default`.
+
+You can also copy scenes and avatars from another Hubs server: paste their URLs
+into **Import Content**.
+
+### Turn on chutvrc's features
+
+In the admin panel, open **App Settings > Features**, switch on what you want,
+and save. After about 15 seconds, reload the room. The features appear under
+**Features** on the room's bottom toolbar. That button is hidden while none of
+them is available.
+
+| Setting          | What it adds                                         | Who sees it |
+| ---------------- | ---------------------------------------------------- | ----------- |
+| Enable Recording | Records the room's data and saves it to your device  | Everyone    |
+| Enable Broadcast | Speaking across rooms (public speaking mode)         | Room owners |
+| Enable N-impro   | The N-impro game                                     | Everyone    |
+
+To broadcast from room A to room B:
+
+1. Make sure both rooms use the same media server, either Dialog or LiveKit.
+2. An owner of room A chooses **Features > Broadcast > Start Speaking**.
+3. An owner of room B chooses **Features > Broadcast > Start Listening**.
+   Everyone in room B then hears and sees the speaker.
+
+### Use LiveKit or Sora (optional)
+
+Dialog needs no configuration. To use another media server, open **Server
+Settings > WEBRTC** in the admin panel:
+
+- **LiveKit:** fill in the server URL (`wss://...`), API key and API secret from
+  your own LiveKit server or LiveKit Cloud project.
+- **Sora:** fill in the project ID and bearer token from your Sora Cloud
+  contract.
+
+**Default WebRTC SFU** sets the server for new rooms. A room owner can change
+it under **More > Room Info and Settings**.
+
+### Set up email
+
+Sign-in links are sent by email. Until you fill in **Server Settings > Email**,
+they appear only in the server log:
+
+```bash
+docker compose logs reticulum | grep auth_token
+```
 
 ---
 
@@ -91,18 +184,17 @@ up:
 If you'd rather not open a terminal each time, use the start script for your
 platform — it just runs `bin/up` after a quick sanity check:
 
-- **macOS:** double-click `start-mac.command`
-- **Windows:** double-click `start-windows.bat`
-- **Linux:** run `./start-linux.sh` from a terminal, or double-click it in
-  your file manager if your desktop environment is configured to execute
+- **macOS:** double-click `scripts/start-mac.command`
+- **Windows:** double-click `chutvrc-windows-setup.bat` and choose **Start
+  chutvrc**, or double-click `scripts/start-windows.bat`
+- **Linux:** run `./scripts/start-linux.sh` from a terminal, or double-click it
+  in your file manager if your desktop environment is configured to execute
   shell scripts on double-click (most ask whether to _Run_ or _Open in
   editor_ the first time).
 
-These are **start-only** scripts. Do not confuse them with
-`local-setup-mac.command` / `local-setup-windows.bat` /
-`local-setup-linux.sh`, which run the full one-time setup (cloning repos,
-building images, generating certificates, etc.) and should not be repeated
-daily.
+The scripts in `scripts/` are **start-only**. On macOS and Linux, do not repeat
+`chutvrc-mac-setup.command` or `chutvrc-linux-setup.sh` daily: they run the full
+one-time setup (cloning repos, building images, generating certificates, etc.).
 
 Make sure Docker is running before launching them (Docker Desktop on
 macOS / Windows, or `sudo systemctl start docker` on Linux with Docker
@@ -189,21 +281,24 @@ Whether or not to commit the edited `bin/init` to your own fork of
 
 ## Other documentation
 
-- [`MANUAL_SETUP.md`](MANUAL_SETUP.md) — manual `bin/init`, certificate, and
-  per-environment configuration. Covers single-device development, LAN
-  access, and remote-server hosting with a public domain. Use this if the
-  double-click flow doesn't fit your environment.
-- [`SSL_SETUP.md`](SSL_SETUP.md) — standalone walk-through of the
-  `mkcert`-based local SSL setup (a subset of `MANUAL_SETUP.md`).
+- [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) — manual `bin/init`,
+  certificate, and per-environment configuration. Covers single-device
+  development, LAN access, and remote-server hosting with a public domain. Use
+  this if the double-click flow doesn't fit your environment.
+- [`docs/SSL_SETUP.md`](docs/SSL_SETUP.md) — standalone walk-through of the
+  `mkcert`-based local SSL setup (a subset of `docs/MANUAL_SETUP.md`).
 - [`k8s/`](k8s/) — Kubernetes deployment manifests and step-by-step deploy
   manuals (English and Japanese, under `k8s/docs/deploy-manual/`) for hosting
   chutvrc on a server.
-- [`LEGACY_HUBS_COMPOSE.md`](LEGACY_HUBS_COMPOSE.md) — the original Hubs
-  Compose `README.md` that this fork was based on. Targets the now-deprecated
-  Mozilla Hubs / Hubs-Foundation services and **does not reflect the chutvrc
-  workflow**. Kept only for historical reference.
-- [`decisions/`](decisions/) — architectural decision records for changes that
-  affect the structure or interfaces of the project.
+- [`docs/legacy/`](docs/legacy/) — the original Hubs Compose documents that
+  this fork was based on. They target the now-deprecated Mozilla Hubs /
+  Hubs-Foundation services and **do not reflect the chutvrc workflow**. Kept
+  only for historical reference.
+- [`docs/decisions/`](docs/decisions/) — architectural decision records for
+  changes that affect the structure or interfaces of the project.
+- [`docs/MAINTAINING.md`](docs/MAINTAINING.md) — handover notes for whoever
+  maintains chutvrc and its demo server (in Japanese). Not needed for setting up
+  your own instance.
 
 ---
 

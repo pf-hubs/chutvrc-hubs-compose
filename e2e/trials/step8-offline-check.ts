@@ -1,0 +1,13 @@
+import { chromium } from "@playwright/test";
+import { shapeLink } from "../clients/network";
+const b = await chromium.connect("ws://127.0.0.1:3100");
+const p = await (await b.newContext({ ignoreHTTPSErrors: true })).newPage();
+await p.goto("https://hubs.local:4000/api/v1/meta");
+shapeLink("offline");
+const t0 = Date.now();
+console.log("evaluate during offline:", await p.evaluate(() => 1 + 1), Date.now() - t0, "ms");
+const r = await p.evaluate(() => Promise.race([fetch("/api/v1/meta").then(r => r.status).catch(e => String(e)), new Promise(r => setTimeout(() => r("timeout 4s"), 4000))]));
+console.log("page fetch during offline:", r);
+shapeLink("normal");
+console.log("page fetch after:", await p.evaluate(() => fetch("/api/v1/meta").then(r => r.status)));
+await b.close();

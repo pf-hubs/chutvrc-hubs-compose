@@ -1,0 +1,118 @@
+# Extra services for the simulated-client tests in e2e/.
+# Start them after bin/up, one or more at a time:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d <service>
+# They join the network the main stack creates (mozilla-hubs), so bin/up must have run first.
+# PRIVATE_NETWORK_IP comes from .env, as for Dialog.
+
+services:
+  # Local LiveKit server in dev mode: API key "devkey", secret "secret".
+  # 7880 is signalling and the API, 7881/tcp and 7882/udp carry media. Media candidates
+  # announce PRIVATE_NETWORK_IP, so clients inside containers can reach them too.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "${PRIVATE_NETWORK_IP}"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    networks:
+      - mozilla-hubs
+
+  # TLS in front of livekit, so the HTTPS page can connect to wss://hubs.local:7443.
+  # Uses the mkcert certificate of the hubs client.
+  livekit-tls:
+    image: caddy:2.11.9-alpine
+    depends_on:
+      - livekit
+    ports:
+      - "7443:7443"
+    volumes:
+      - ./e2e/docker/livekit-tls.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./services/hubs/certs:/certs:ro
+    networks:
+      - mozilla-hubs
+
+  # Static files of e2e/assets/ (avatars, media, clips) at https://hubs.local:3001/<path>, with the
+  # mkcert certificate. That URL form is the one to put in a profile's avatarId or paste into a room:
+  # the client fetches hubs.local URLs itself, and reticulum's content security policy lets pages
+  # reach https://hubs.local:3001 (not an arbitrary port). Through reticulum's CORS proxy the
+  # internal form http://assets/<path> answers 401, since the proxy refuses internal addresses;
+  # containers on mozilla-hubs can still use it directly.
+  assets:
+    image: caddy:2.11.9-alpine
+    expose:
+      - "80"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./e2e/docker/assets.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./e2e/assets:/srv:ro
+      - ./services/hubs/certs:/certs:ro
+    networks:
+      - mozilla-hubs
+
+  # The previous build of the client, served at https://hubs.local:8082 (8081 is often taken
+  # by another local server and would shadow it on 127.0.0.1).
+  # services/hubs-old is a git worktree of the hubs branch feature/sfu-refactor, with the mkcert
+  # certificate of services/hubs copied in (certs/ is not in git):
+  #   git -C services/hubs worktree add ../hubs-old feature/sfu-refactor
+  #   cp -r services/hubs/certs services/hubs-old/
+  # The worktree is copied into a volume at each start (that branch does not change),
+  # so dependencies install and webpack watches on the Linux side, as for hubs-client.
+  # That build fixes its asset base to https://<INTERNAL_HOSTNAME>:8080/, which on the host is
+  # the current client. The old client's browser therefore sends hubs.local:8080 here and opens
+  # https://hubs.local:8080/hub.html?hub_id=<id>, so the page keeps the origin reticulum allows:
+  #   Chromium: --host-resolver-rules="MAP hubs.local:8080 127.0.0.1:8082"
+  hubs-client-old:
+    build:
+      context: .
+      dockerfile: dockerfiles/hubs.Dockerfile
+    command:
+      - sh
+      - -ec
+      - |
+        tar -C /src --exclude=node_modules --exclude=.git -cf - . | tar -C /code -xf -
+        conditional-npm-ci
+        exec npm run local
+    environment:
+      INTERNAL_HOSTNAME: ${HUBS_HOST:-hubs.local}
+      RETICULUM_HOST: ${HUBS_HOST:-hubs.local}
+      CORS_PROXY_SERVER: "${HUBS_HOST:-hubs.local}:4000"
+    healthcheck:
+      start_period: 10m
+      test: ["CMD", "curl", "-fk", "https://localhost:8080"]
+    platform: linux/amd64
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./services/hubs-old:/src:ro
+      - hubs-old:/code
+    working_dir: /code
+    networks:
+      - mozilla-hubs
+
+  # The poor-network client: a Playwright browser server in a container whose link is
+  # shaped with: docker compose exec netclient tc qdisc replace dev eth0 root netem ...
+  # Tests connect with chromium.connect("ws://127.0.0.1:3100").
+  netclient:
+    build:
+      context: ./e2e/docker
+      dockerfile: netclient.Dockerfile
+    init: true
+    cap_add:
+      - NET_ADMIN
+    shm_size: "2gb"
+    extra_hosts:
+      - "hubs.local:host-gateway"
+    ports:
+      - "127.0.0.1:3100:3100"
+    networks:
+      - mozilla-hubs
+
+networks:
+  mozilla-hubs:
+    name: mozilla-hubs
+    external: true
+
+volumes:
+  hubs-old:

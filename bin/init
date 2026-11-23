@@ -10,12 +10,13 @@ servicesdir=$basedir/services
 # Idempotent clone: skip `git clone` when the service is already cloned, so a
 # failed mid-init run can be retried without manual cleanup.
 clone_or_skip() {
-    local repo="$1" dest="$2" branch="$3"
+    local repo="$1" dest="$2" branch="$3" current
     if [ -d "$dest/.git" ]; then
-        echo "  $dest already cloned — skipping."
-    else
-        git clone "$repo" "$dest" || return 1
+        current=$(git -C "$dest" branch --show-current)
+        echo "  $dest already cloned — keeping branch ${current:-detached HEAD} (default: $branch)."
+        return 0
     fi
+    git clone "$repo" "$dest" || return 1
     (cd "$dest" && git checkout "$branch") || return 1
 }
 
