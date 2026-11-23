@@ -44,7 +44,9 @@ next section.
 2. Clone this repository.
 3. Run the setup script for your platform:
    - **macOS:** double-click `local-setup-mac.command` (in Finder)
-   - **Windows:** double-click `local-setup-windows.bat` (in Explorer)
+   - **Windows:** double-click `install-windows.bat` (in Explorer) for a
+     graphical installer, or `local-setup-windows.bat` to do the same in a
+     terminal
    - **Linux:** open a terminal and run `./local-setup-linux.sh`
 
 The script installs the remaining dependencies (`mutagen`, `mutagen-compose`,
