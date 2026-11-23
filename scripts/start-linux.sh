@@ -1,11 +1,11 @@
 #!/bin/bash
-# start-linux.sh — Start chutvrc Compose on Linux.
+# scripts/start-linux.sh — Start chutvrc Compose on Linux.
 # Run from a terminal: ./start-linux.sh
 # Or double-click in your file manager (most need "Run" enabled for .sh files).
-# Use AFTER you have completed the manual setup in MANUAL_SETUP.md once.
+# Use AFTER you have completed the manual setup in docs/MANUAL_SETUP.md once.
 
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 BOLD='\033[1;37m'
 GREEN='\033[1;32m'
@@ -20,7 +20,7 @@ echo "============================================================"
 echo ""
 
 if ! command -v docker &>/dev/null; then
-    echo -e "${RED}Docker is not installed. See MANUAL_SETUP.md for prerequisites.${RESET}"
+    echo -e "${RED}Docker is not installed. See docs/MANUAL_SETUP.md for prerequisites.${RESET}"
     read -rp "Press Enter to close..."
     exit 1
 fi
@@ -39,13 +39,13 @@ fi
 
 if [ ! -d services/reticulum/.git ]; then
     echo -e "${RED}Services are not initialized.${RESET}"
-    echo "Follow MANUAL_SETUP.md (run bin/init and configure your scenario) first."
+    echo "Follow docs/MANUAL_SETUP.md (run bin/init and configure your scenario) first."
     read -rp "Press Enter to close..."
     exit 1
 fi
 
 if ! command -v mutagen-compose &>/dev/null; then
-    echo -e "${RED}mutagen-compose is not installed. See MANUAL_SETUP.md.${RESET}"
+    echo -e "${RED}mutagen-compose is not installed. See docs/MANUAL_SETUP.md.${RESET}"
     read -rp "Press Enter to close..."
     exit 1
 fi

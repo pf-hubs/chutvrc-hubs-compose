@@ -1,7 +1,7 @@
 #!/bin/bash
 # setup-common.sh — Shared setup logic for macOS, Linux, and Windows.
-# Sourced by local-setup-mac.command, local-setup-linux.sh, and
-# local-setup-windows.bat (via Git Bash).
+# Sourced by chutvrc-mac-setup.command, chutvrc-linux-setup.sh, and
+# chutvrc-windows-setup.bat (via Git Bash).
 
 BOLD='\033[1;37m'
 GREEN='\033[1;32m'
@@ -62,7 +62,7 @@ detect_scenario() {
         if [ -z "${PRIVATE_NETWORK_IP:-}" ]; then
             fail "ERROR: Public-domain hosting requires PRIVATE_NETWORK_IP=<server public IP> in .env."
             warn "bin/up auto-detection returns the private NIC on cloud VMs, which silently breaks WebRTC media."
-            warn "See MANUAL_SETUP.md (Remote Server section) for details."
+            warn "See docs/MANUAL_SETUP.md (Remote Server section) for details."
             exit 1
         fi
     fi
@@ -282,7 +282,7 @@ generate_certs() {
         case "$OSTYPE" in
           msys*|cygwin*|win*)
             fail "ERROR: Public-domain hosting (with a real DNS-resolvable domain) is not supported on Windows."
-            warn "Run from WSL2, or follow MANUAL_SETUP.md (Remote Server section) on a Linux server."
+            warn "Run from WSL2, or follow docs/MANUAL_SETUP.md (Remote Server section) on a Linux server."
             return 1
             ;;
         esac
@@ -443,7 +443,7 @@ prompt_and_wait() {
     echo ""
 }
 
-# ── Sign-in helpers (also used by the Windows installer, bin/setup-gui.ps1) ───
+# ── Sign-in helpers (also used by the Windows installer, scripts/setup-windows-gui.ps1) ───
 
 # The newest sign-in link in Reticulum's log, or nothing
 latest_sign_in_link() {
@@ -595,13 +595,12 @@ guided_post_setup() {
     echo "============================================================"
     echo ""
     echo "  DAILY USAGE:"
-    echo "    Start:   bin/up         (or double-click start-mac.command /"
-    echo "                             start-windows.bat / start-linux.sh)"
+    echo "    Start:   bin/up         (or the start script for your system in scripts/)"
     echo "    Stop:    bin/down"
     echo "    Restart: bin/down && mutagen daemon stop && bin/up"
     echo ""
-    echo "  Note: do NOT re-run local-setup-* on subsequent days — those are"
-    echo "  one-time setup scripts. Use the start-* scripts (or bin/up) instead."
+    echo "  Note: do NOT re-run the setup script on subsequent days — it is a"
+    echo "  one-time setup. Use the start script in scripts/ (or bin/up) instead."
     echo ""
     echo "============================================================"
     echo ""

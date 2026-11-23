@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title chutvrc Compose - Start
 
 REM Double-click to start chutvrc Compose.
-REM Use AFTER local-setup-windows.bat has been run once. Daily start only.
+REM Use AFTER chutvrc-windows-setup.bat has been run once. Daily start only.
 
 echo.
 echo ============================================================
@@ -15,7 +15,7 @@ echo.
 REM Docker check
 where docker >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Docker is not installed. Run local-setup-windows.bat first.
+    echo [ERROR] Docker is not installed. Run chutvrc-windows-setup.bat first.
     pause
     exit /b 1
 )
@@ -31,7 +31,7 @@ if errorlevel 1 (
 
 REM Setup check
 if not exist ".bin-init-completed" (
-    echo [ERROR] Setup not completed yet. Run local-setup-windows.bat first.
+    echo [ERROR] Setup not completed yet. Run chutvrc-windows-setup.bat first.
     pause
     exit /b 1
 )
@@ -56,7 +56,7 @@ if "!GIT_BASH!"=="" (
     exit /b 1
 )
 
-set "PROJECT_DIR=%~dp0"
+set "PROJECT_DIR=%CD%"
 set "PROJECT_DIR=!PROJECT_DIR:\=/!"
 if "!PROJECT_DIR:~-1!"=="/" set "PROJECT_DIR=!PROJECT_DIR:~0,-1!"
 

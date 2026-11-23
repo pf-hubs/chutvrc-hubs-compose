@@ -1,7 +1,7 @@
 #!/bin/bash
-# local-setup-mac.command — Double-click in Finder to set up chutvrc Compose.
+# chutvrc-mac-setup.command — Double-click in Finder to set up chutvrc Compose.
 # Default flow is single-device development on hubs.local. For LAN access or
-# public-domain hosting, populate `.env` (see .env.example / MANUAL_SETUP.md)
+# public-domain hosting, populate `.env` (see .env.example / docs/MANUAL_SETUP.md)
 # *before* double-clicking — this script will detect HUBS_HOST and dispatch.
 
 set -euo pipefail
@@ -30,7 +30,7 @@ echo ""
 # own functions wrap fail+return 1); restore the exit-on-fail variant so
 # the inline prereq checks below still terminate the script on missing
 # Docker / etc.
-source ./local-setup-common.sh
+source ./scripts/setup-common.sh
 fail() { echo -e "${RED}$*${RESET}"; exit 1; }
 
 # ── Pre-flight: Scenario selection ──────────────────────────────────────────

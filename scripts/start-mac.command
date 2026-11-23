@@ -1,9 +1,9 @@
 #!/bin/bash
-# start-mac.command — Double-click in Finder to start chutvrc Compose.
-# Use AFTER local-setup-mac.command has been run once. For daily start/stop only.
+# scripts/start-mac.command — Double-click in Finder to start chutvrc Compose.
+# Use AFTER chutvrc-mac-setup.command has been run once. For daily start/stop only.
 
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 BOLD='\033[1;37m'
 GREEN='\033[1;32m'
@@ -18,7 +18,7 @@ echo "============================================================"
 echo ""
 
 if ! command -v docker &>/dev/null; then
-    echo -e "${RED}Docker is not installed. Run local-setup-mac.command first.${RESET}"
+    echo -e "${RED}Docker is not installed. Run chutvrc-mac-setup.command first.${RESET}"
     read -rp "Press Enter to close..."
     exit 1
 fi
@@ -34,7 +34,7 @@ if ! docker info &>/dev/null; then
 fi
 
 if [ ! -f .bin-init-completed ]; then
-    echo -e "${RED}Setup not completed yet. Run local-setup-mac.command first.${RESET}"
+    echo -e "${RED}Setup not completed yet. Run chutvrc-mac-setup.command first.${RESET}"
     read -rp "Press Enter to close..."
     exit 1
 fi

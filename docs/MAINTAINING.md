@@ -26,7 +26,7 @@ chutvrc の保守を引き継ぐ人のための手引きである。
 | [pf-hubs/chutvrc-hubs](https://github.com/pf-hubs/chutvrc-hubs) | クライアントと管理画面 | `services/hubs` |
 | [pf-hubs/chutvrc-spoke](https://github.com/pf-hubs/chutvrc-spoke) | シーンエディター | `services/spoke` |
 
-- 4つのサービスは、`bin/init` が各リポジトリの `develop` ブランチを `services/` に clone する（[`bin/init`](bin/init) の `clone_or_skip`）。`services/` はこのリポジトリの管理外（`.gitignore`）で、それぞれが独立した git リポジトリである。
+- 4つのサービスは、`bin/init` が各リポジトリの `develop` ブランチを `services/` に clone する（[`bin/init`](../bin/init) の `clone_or_skip`）。`services/` はこのリポジトリの管理外（`.gitignore`）で、それぞれが独立した git リポジトリである。
 - 上流は [Hubs Foundation](https://github.com/Hubs-Foundation) の各リポジトリ（hubs、reticulum、dialog、Spoke）。
 
 ---
@@ -183,4 +183,4 @@ add-on API について：
 
 ### 3.9 k8s（凍結中）
 
-（未記入）。現状の資料は [`k8s/docs/deploy-manual/`](k8s/docs/deploy-manual/)（英日）と [`k8s/docs/COTURN_WEBRTC_FIX_PLAN.md`](k8s/docs/COTURN_WEBRTC_FIX_PLAN.md)。
+（未記入）。現状の資料は [`k8s/docs/deploy-manual/`](../k8s/docs/deploy-manual/)（英日）と [`k8s/docs/COTURN_WEBRTC_FIX_PLAN.md`](../k8s/docs/COTURN_WEBRTC_FIX_PLAN.md)。

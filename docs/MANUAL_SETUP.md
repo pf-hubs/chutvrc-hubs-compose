@@ -3,8 +3,8 @@
 This guide walks through configuring `chutvrc-hubs-compose` by hand. Follow it
 if:
 
-- The double-click setup scripts (`local-setup-mac.command` /
-  `local-setup-windows.bat`, see [`README.md`](README.md)) are not a fit for
+- The double-click setup scripts (`chutvrc-mac-setup.command` /
+  `chutvrc-windows-setup.bat`, see [`README.md`](../README.md)) are not a fit for
   your environment.
 - You are setting up to have your chutvrc accessible from **other devices (either within the same LAN or publicly)** —
   the double-click scripts only cover local development within a single device.
@@ -69,7 +69,7 @@ if:
    ```
    If you have already cloned this repository, delete your local copy and
    re-clone it after changing this setting.
-5. `mkcert` is installed automatically by `local-setup-windows.bat` — it
+5. `mkcert` is installed automatically by `chutvrc-windows-setup.bat` — it
    downloads the latest release from
    [mkcert's GitHub releases](https://github.com/FiloSottile/mkcert/releases/latest)
    into `%LOCALAPPDATA%\mkcert\` and adds it to your user PATH (no admin
@@ -103,8 +103,8 @@ the `.env` file, set up SSL certificates, and prepare your network.
 > uncomment the relevant lines.
 
 > **Setup scripts honor these scenarios automatically.** Once `.env` is in
-> place, running `local-setup-mac.command` / `local-setup-windows.bat` /
-> `local-setup-linux.sh` performs the cert generation, hosts-file edit (or
+> place, running `chutvrc-mac-setup.command` / `chutvrc-windows-setup.bat` /
+> `chutvrc-linux-setup.sh` performs the cert generation, hosts-file edit (or
 > skip), and start-up steps below for you. The instructions below describe
 > what those scripts do under the hood — useful when something fails or when
 > you prefer to drive each step by hand.
@@ -364,7 +364,7 @@ credentials and any other settings required for your environment.
 - **Recording, Broadcast and N-impro** (off by default): Side menu → "App Settings" → "Features" tab
 
 A new instance has no scenes or avatars. See
-[After setup](README.md#after-setup) in the README for adding them and for
+[After setup](../README.md#after-setup) in the README for adding them and for
 what each setting above does.
 
 ---

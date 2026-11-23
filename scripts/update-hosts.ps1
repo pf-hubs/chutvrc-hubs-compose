@@ -1,10 +1,10 @@
 # Adds hubs.local + internal service hostnames to the Windows hosts file.
-# Intended to be invoked elevated (via Start-Process -Verb RunAs) from local-setup-windows.bat.
+# Intended to be invoked elevated (via Start-Process -Verb RunAs) from chutvrc-windows-setup.bat.
 #
 # The service names (hubs-client, hubs-admin, spoke, dialog) are needed because
 # the hubs-client webpack config bakes `https://hubs-client:8080/...` absolute
 # URLs into the HTML it serves, and the browser needs to resolve that hostname.
-# macOS users get the same entries per SSL_SETUP.md.
+# macOS users get the same entries per docs/SSL_SETUP.md.
 
 $ErrorActionPreference = 'Stop'
 $hostsFile = Join-Path $env:WinDir 'System32\drivers\etc\hosts'

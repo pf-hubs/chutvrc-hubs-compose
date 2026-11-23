@@ -1,6 +1,6 @@
-# The chutvrc installer for Windows, started by install-windows.bat. It does what
-# local-setup-windows.bat does, as a wizard: the long steps are the functions of
-# local-setup-common.sh, run in the background through bin/setup-step.
+# The chutvrc installer for Windows, started by chutvrc-windows-setup.bat. It does what
+# chutvrc-windows-setup.bat does, as a wizard: the long steps are the functions of
+# scripts/setup-common.sh, run in the background through scripts/setup-step.sh.
 #
 # Keep this file ASCII: Windows PowerShell reads a file without a byte order mark in the
 # system code page.
@@ -156,7 +156,7 @@ function Write-SetupLog([string]$Text) {
 function Start-Step {
     param([string[]]$Step, [scriptblock]$OnExit, [string]$Output = $script:LogFile)
     if (-not $OnExit) { $OnExit = { param($code) Complete-InstallStep $code } }
-    $script_ = (Join-Path $script:Root 'bin\setup-step') -replace '\\', '/'
+    $script_ = (Join-Path $script:Root 'scripts\setup-step.sh') -replace '\\', '/'
     $env:CHUTVRC_SETUP_OUTPUT = $Output
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $script:GitBash
@@ -289,7 +289,7 @@ function Start-HostsStep {
         return
     }
     $script:UI.InstallDetail.Text = 'Windows will ask for permission to add hubs.local to this computer.'
-    $file = Join-Path $script:Root 'bin\update-hosts.ps1'
+    $file = Join-Path $script:Root 'scripts\update-hosts.ps1'
     try {
         $process = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -PassThru `
             -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$file`"")
@@ -492,7 +492,7 @@ function Complete-SignIn {
                     Reset-SignIn
                 } else {
                     Set-SignInBusy $false
-                    Set-SignInStatus 'Could not make the account an administrator. Press Next to try again, or see MANUAL_SETUP.md, Step 7.' $script:Bad
+                    Set-SignInStatus 'Could not make the account an administrator. Press Next to try again, or see docs/MANUAL_SETUP.md, Step 7.' $script:Bad
                 }
             }
         }
@@ -618,7 +618,7 @@ function Build-ScenarioPage {
     $script:UI.ScenarioLan.Add_CheckedChanged({ $script:UI.AddressBox.Enabled = $script:UI.ScenarioLan.Checked })
     $script:UI.ScenarioError = New-Text $p '' 48 172 580 22
     $script:UI.ScenarioError.ForeColor = $script:Bad
-    $note = New-Text $p 'To host on a public domain, follow "Remote Server" in MANUAL_SETUP.md on a Linux server or WSL2. This installer does not cover it.' 28 222 600 44
+    $note = New-Text $p 'To host on a public domain, follow "Remote Server" in docs/MANUAL_SETUP.md on a Linux server or WSL2. This installer does not cover it.' 28 222 600 44
     $note.ForeColor = $script:Muted
 }
 
@@ -740,7 +740,7 @@ function Build-FinishPage {
     [void](New-Button $p 'Open chutvrc' 28 184 130 { Start-Process (Get-BaseUrl) })
     [void](New-Button $p 'Open admin panel' 166 184 150 { Start-Process ((Get-BaseUrl) + '/admin') })
     [void](New-Button $p 'Open the setup guide' 324 184 170 { Start-Process $script:GuideUrl })
-    $note = New-Text $p 'To start chutvrc another day, run install-windows.bat again or start-windows.bat.' 28 236 608 24
+    $note = New-Text $p 'To start chutvrc another day, run chutvrc-windows-setup.bat again.' 28 236 608 24
     $note.ForeColor = $script:Muted
 }
 
@@ -813,7 +813,7 @@ function Invoke-Next {
         'requirements' {
             if (Test-PublicDomainHost) {
                 [void][System.Windows.Forms.MessageBox]::Show($script:UI.Form,
-                    '.env sets a public domain as HUBS_HOST. This installer does not cover that on Windows. Follow "Remote Server" in MANUAL_SETUP.md.',
+                    '.env sets a public domain as HUBS_HOST. This installer does not cover that on Windows. Follow "Remote Server" in docs/MANUAL_SETUP.md.',
                     'chutvrc', 'OK', 'Warning')
                 return
             }

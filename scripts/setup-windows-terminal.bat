@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title chutvrc Compose - Windows Setup
 
 REM Define ANSI escape character for colored output (Windows 10+)
@@ -71,7 +71,7 @@ if not defined HUBS_HOST_SET (
         echo.
         echo     Note: Public-domain hosting on Windows is unsupported in this script
         echo     ^(certbot has no native Windows port^). Run from WSL2, or follow
-        echo     MANUAL_SETUP.md ^(Remote Server section^) on a Linux server.
+        echo     docs/MANUAL_SETUP.md ^(Remote Server section^) on a Linux server.
         echo.
         echo     If you want to continue here anyway, edit .env with HUBS_HOST and
         echo     PRIVATE_NETWORK_IP, then re-run -- the script will error out at the
@@ -166,7 +166,7 @@ if not errorlevel 1 goto :mkcert_done
 
 echo   mkcert not found. Downloading the latest release from GitHub...
 set "MKCERT_INSTALL_DIR="
-for /f "usebackq tokens=1,* delims==" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0bin\install-mkcert.ps1"`) do (
+for /f "usebackq tokens=1,* delims==" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-mkcert.ps1"`) do (
     if /i "%%A"=="INSTALL_DIR" set "MKCERT_INSTALL_DIR=%%B"
 )
 if not defined MKCERT_INSTALL_DIR goto :mkcert_missing
@@ -281,7 +281,7 @@ if defined HUBS_HOST_SET (
 
 REM Use "hubs-client" as a completeness marker -- it was NOT in the older
 REM versions, so its presence means the hosts file has been updated by
-REM the current version of bin\update-hosts.ps1.
+REM the current version of scripts\update-hosts.ps1.
 findstr /C:"hubs-client" "%WINDIR%\System32\drivers\etc\hosts" >nul 2>&1
 if not errorlevel 1 (
     echo   [OK] Hosts file already contains all hubs entries.
@@ -290,7 +290,7 @@ if not errorlevel 1 (
 
 :hosts_try
 echo   Adding hubs entries to hosts file ^(a UAC prompt will appear^)...
-powershell -NoProfile -Command "Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%~dp0bin\update-hosts.ps1' -Verb RunAs -Wait"
+powershell -NoProfile -Command "Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%~dp0update-hosts.ps1' -Verb RunAs -Wait"
 
 findstr /C:"hubs-client" "%WINDIR%\System32\drivers\etc\hosts" >nul 2>&1
 if not errorlevel 1 (
@@ -338,12 +338,12 @@ echo   (The setup may take a while -- please be patient.)
 echo.
 
 REM Convert Windows path to Unix-style for Git Bash
-set "PROJECT_DIR=%~dp0"
+set "PROJECT_DIR=%CD%"
 set "PROJECT_DIR=!PROJECT_DIR:\=/!"
 REM Remove trailing slash
 if "!PROJECT_DIR:~-1!"=="/" set "PROJECT_DIR=!PROJECT_DIR:~0,-1!"
 
-"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && basedir=\"$(pwd)\" && source ./local-setup-common.sh && load_env && detect_scenario && echo '' && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
+"!GIT_BASH!" --login -c "cd '!PROJECT_DIR!' && basedir=\"$(pwd)\" && source ./scripts/setup-common.sh && load_env && detect_scenario && echo '' && ensure_docker_running && echo '' && run_init && echo '' && generate_certs && echo '' && copy_certs_to_services && echo '' && rebuild_dialog && echo '' && start_services && guided_post_setup"
 
 if errorlevel 1 (
     echo.

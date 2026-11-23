@@ -32,28 +32,45 @@ For the full feature list and screenshots, see the
 
 ---
 
-## Quick Start (double-click) — one-time setup
-
-The fastest way to get a single-device development instance running is the
-one-click setup script for your platform. **Run this only once**, the very
-first time you set up the project. After that, use the daily commands in the
-next section.
+## Start here
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
    (or Docker Engine on Linux) and start it.
 2. Clone this repository.
-3. Run the setup script for your platform:
-   - **macOS:** double-click `local-setup-mac.command` (in Finder)
-   - **Windows:** double-click `install-windows.bat` (in Explorer) for a
-     graphical installer, or `local-setup-windows.bat` to do the same in a
-     terminal
-   - **Linux:** open a terminal and run `./local-setup-linux.sh`
+3. Run the setup file for your system, in this folder:
 
-The script installs the remaining dependencies (`mutagen`, `mutagen-compose`,
-`mkcert`), clones each service from `pf-hubs/chutvrc-*` into `services/`,
-builds the Docker images, generates SSL certificates with `mkcert`,
-configures your hosts file, and starts everything. It then guides you through
-signing in and promoting your account to admin.
+| System  | Run                                                                  |
+| ------- | -------------------------------------------------------------------- |
+| Windows | Double-click **`chutvrc-windows-setup.bat`** (a graphical installer) |
+| macOS   | Double-click **`chutvrc-mac-setup.command`**                         |
+| Linux   | In a terminal, run **`./chutvrc-linux-setup.sh`**                    |
+
+**Run this only once**, the first time you set up the project. After that, use
+the daily commands [below](#daily-usage). On Windows you can also run the same
+file again to start chutvrc.
+
+The setup installs what it can of the remaining dependencies (`mkcert`, and
+`mutagen` and `mutagen-compose` on macOS and Linux; on Windows the installer
+shows where to get Mutagen), clones each service from `pf-hubs/chutvrc-*` into
+`services/`, builds the Docker images, generates SSL certificates with
+`mkcert`, configures your hosts file, and starts everything. It then guides you
+through signing in and promoting your account to admin.
+
+<details>
+<summary>What is in this repository</summary>
+
+| Path                 | Contents                                                     |
+| -------------------- | ------------------------------------------------------------ |
+| `chutvrc-*-setup.*`  | The setup to run first                                       |
+| `bin/`               | Daily commands: `bin/up`, `bin/down`, `bin/reset`, and so on |
+| `docs/`              | Manual setup, certificates, maintenance notes, decisions     |
+| `scripts/`           | What the setup runs, and double-click start scripts          |
+| `services/`          | The chutvrc services, cloned by the setup                    |
+| `k8s/`               | Kubernetes deployment                                        |
+| `e2e/`               | Browser tests                                                |
+| `dockerfiles/`, `files/`, `docker-compose*.yml` | How the containers are built and run |
+
+</details>
 
 When the guided setup finishes, chutvrc is available at
 **https://hubs.local:4000**.
@@ -67,11 +84,11 @@ If you re-run the setup script later, it will detect this and skip the heavy
 > access** (other devices on the same network reach chutvrc via your
 > machine's IP) and **public-domain hosting** (a real DNS-resolvable domain
 > on a server). Populate `.env` (see [`.env.example`](.env.example) and
-> [`MANUAL_SETUP.md`](MANUAL_SETUP.md)) **before** running the script. The
+> [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md)) **before** running the script. The
 > script reads `HUBS_HOST` from `.env` and dispatches to the right cert flow
 > (`mkcert` with the LAN IP added as a SAN, or `certbot` for a real domain).
 > Public-domain hosting is supported on macOS and Linux only — Windows users
-> should run it from WSL2 or follow `MANUAL_SETUP.md` on a Linux server.
+> should run it from WSL2 or follow `docs/MANUAL_SETUP.md` on a Linux server.
 
 ---
 
@@ -167,18 +184,17 @@ up:
 If you'd rather not open a terminal each time, use the start script for your
 platform — it just runs `bin/up` after a quick sanity check:
 
-- **macOS:** double-click `start-mac.command`
-- **Windows:** double-click `start-windows.bat`
-- **Linux:** run `./start-linux.sh` from a terminal, or double-click it in
-  your file manager if your desktop environment is configured to execute
+- **macOS:** double-click `scripts/start-mac.command`
+- **Windows:** double-click `chutvrc-windows-setup.bat` and choose **Start
+  chutvrc**, or double-click `scripts/start-windows.bat`
+- **Linux:** run `./scripts/start-linux.sh` from a terminal, or double-click it
+  in your file manager if your desktop environment is configured to execute
   shell scripts on double-click (most ask whether to _Run_ or _Open in
   editor_ the first time).
 
-These are **start-only** scripts. Do not confuse them with
-`local-setup-mac.command` / `local-setup-windows.bat` /
-`local-setup-linux.sh`, which run the full one-time setup (cloning repos,
-building images, generating certificates, etc.) and should not be repeated
-daily.
+The scripts in `scripts/` are **start-only**. On macOS and Linux, do not repeat
+`chutvrc-mac-setup.command` or `chutvrc-linux-setup.sh` daily: they run the full
+one-time setup (cloning repos, building images, generating certificates, etc.).
 
 Make sure Docker is running before launching them (Docker Desktop on
 macOS / Windows, or `sudo systemctl start docker` on Linux with Docker
@@ -265,24 +281,24 @@ Whether or not to commit the edited `bin/init` to your own fork of
 
 ## Other documentation
 
-- [`MANUAL_SETUP.md`](MANUAL_SETUP.md) — manual `bin/init`, certificate, and
-  per-environment configuration. Covers single-device development, LAN
-  access, and remote-server hosting with a public domain. Use this if the
-  double-click flow doesn't fit your environment.
-- [`SSL_SETUP.md`](SSL_SETUP.md) — standalone walk-through of the
-  `mkcert`-based local SSL setup (a subset of `MANUAL_SETUP.md`).
+- [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) — manual `bin/init`,
+  certificate, and per-environment configuration. Covers single-device
+  development, LAN access, and remote-server hosting with a public domain. Use
+  this if the double-click flow doesn't fit your environment.
+- [`docs/SSL_SETUP.md`](docs/SSL_SETUP.md) — standalone walk-through of the
+  `mkcert`-based local SSL setup (a subset of `docs/MANUAL_SETUP.md`).
 - [`k8s/`](k8s/) — Kubernetes deployment manifests and step-by-step deploy
   manuals (English and Japanese, under `k8s/docs/deploy-manual/`) for hosting
   chutvrc on a server.
-- [`LEGACY_HUBS_COMPOSE.md`](LEGACY_HUBS_COMPOSE.md) — the original Hubs
-  Compose `README.md` that this fork was based on. Targets the now-deprecated
-  Mozilla Hubs / Hubs-Foundation services and **does not reflect the chutvrc
-  workflow**. Kept only for historical reference.
-- [`decisions/`](decisions/) — architectural decision records for changes that
-  affect the structure or interfaces of the project.
-- [`MAINTAINING.md`](MAINTAINING.md) — handover notes for whoever maintains
-  chutvrc and its demo server (in Japanese). Not needed for setting up your
-  own instance.
+- [`docs/legacy/`](docs/legacy/) — the original Hubs Compose documents that
+  this fork was based on. They target the now-deprecated Mozilla Hubs /
+  Hubs-Foundation services and **do not reflect the chutvrc workflow**. Kept
+  only for historical reference.
+- [`docs/decisions/`](docs/decisions/) — architectural decision records for
+  changes that affect the structure or interfaces of the project.
+- [`docs/MAINTAINING.md`](docs/MAINTAINING.md) — handover notes for whoever
+  maintains chutvrc and its demo server (in Japanese). Not needed for setting up
+  your own instance.
 
 ---
 

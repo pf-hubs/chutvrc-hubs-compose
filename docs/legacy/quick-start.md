@@ -5,7 +5,7 @@
 > and targets the now-deprecated Mozilla Hubs / Hubs-Foundation services. It
 > does **not** describe the chutvrc workflow.
 >
-> If you are setting up **chutvrc**, follow [`README.md`](../README.md) and
+> If you are setting up **chutvrc**, follow [`README.md`](../../README.md) and
 > [`MANUAL_SETUP.md`](../MANUAL_SETUP.md) instead. The content below is kept
 > for historical reference only.
 

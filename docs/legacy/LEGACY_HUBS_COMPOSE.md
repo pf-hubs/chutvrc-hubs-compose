@@ -8,8 +8,8 @@
 > Mozilla Hubs / Hubs-Foundation services and **does not reflect the chutvrc
 > workflow**.
 >
-> If you are setting up **chutvrc**, follow [`README.md`](README.md) and
-> [`MANUAL_SETUP.md`](MANUAL_SETUP.md) instead. The content below is kept only
+> If you are setting up **chutvrc**, follow [`README.md`](../../README.md) and
+> [`MANUAL_SETUP.md`](../MANUAL_SETUP.md) instead. The content below is kept only
 > for historical reference and for users who want to run vanilla upstream Hubs
 > with `hubs-compose` (with the caveat that the upstream services were shut
 > down at the end of May 2024).
@@ -87,7 +87,7 @@ Some scripts used to run `hubs-compose` are meant to run in a Unix-like `bash` s
 ## Initial Setup
 
 > [!NOTE]
-> Read [`README.md`](README.md) and [`MANUAL_SETUP.md`](MANUAL_SETUP.md) instead if you are using this project for **chutvrc**, not Hubs-Foundation. (This document was renamed from `START_DEVELOPMENT_FOR_CHUTVRC.md`.)
+> Read [`README.md`](../../README.md) and [`MANUAL_SETUP.md`](../MANUAL_SETUP.md) instead if you are using this project for **chutvrc**, not Hubs-Foundation. (This document was renamed from `START_DEVELOPMENT_FOR_CHUTVRC.md`.)
 
 1. Initialize the services with `bin/init`
 2. Start the containers with `bin/up`
@@ -126,7 +126,7 @@ Some scripts used to run `hubs-compose` are meant to run in a Unix-like `bash` s
 Service communication is encrypted with self-signed Transport Layer Security
 (TLS) certificates. You will need to accept the proxy certificate and the
 certificate at each of the Hubs ports mapped in
-[`docker-compose.yml`](docker-compose.yml). At the time of this writing, that
+[`docker-compose.yml`](../../docker-compose.yml). At the time of this writing, that
 means visiting these links in your web browser and following the prompts:
 
 - [Proxy](https://hubs-proxy.local:4000)

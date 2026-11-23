@@ -1,8 +1,8 @@
 #!/bin/bash
-# local-setup-linux.sh — One-shot setup of chutvrc Compose on Linux.
-# Run from a terminal:  ./local-setup-linux.sh
+# chutvrc-linux-setup.sh — One-shot setup of chutvrc Compose on Linux.
+# Run from a terminal:  ./chutvrc-linux-setup.sh
 # Default flow is single-device development on hubs.local. For LAN access or
-# public-domain hosting, populate `.env` (see .env.example / MANUAL_SETUP.md)
+# public-domain hosting, populate `.env` (see .env.example / docs/MANUAL_SETUP.md)
 # *before* running — this script will detect HUBS_HOST and dispatch.
 #
 # Supported floor: Ubuntu 22.04 LTS (and Debian/Fedora/Arch equivalents).
@@ -26,7 +26,7 @@ warn()    { echo -e "${YELLOW}$*${RESET}"; }
 fail()    { echo -e "${RED}$*${RESET}"; exit 1; }
 
 # Pinned mutagen versions (Mutagen and Mutagen Compose MUST match — see
-# MANUAL_SETUP.md). 0.18.1 is the version known to work with this repo's
+# docs/MANUAL_SETUP.md). 0.18.1 is the version known to work with this repo's
 # docker-compose layout. Bump together when verified.
 MUTAGEN_VERSION="0.18.1"
 
@@ -50,7 +50,7 @@ esac
 # own functions wrap fail+return 1); restore the exit-on-fail variant so
 # the inline prereq checks below still terminate the script on missing
 # Docker / etc.
-source ./local-setup-common.sh
+source ./scripts/setup-common.sh
 fail() { echo -e "${RED}$*${RESET}"; exit 1; }
 
 # ── Pre-flight: Scenario selection ──────────────────────────────────────────
@@ -65,9 +65,9 @@ ask_scenario_if_unset
 info "Phase 0: Environment checks..."
 
 # WSL2: hosts edits inside WSL are invisible to Windows browsers, so users
-# should run local-setup-windows.bat from Windows instead.
+# should run chutvrc-windows-setup.bat from Windows instead.
 if grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; then
-    fail "ERROR: WSL2 detected. Run local-setup-windows.bat from Windows instead.
+    fail "ERROR: WSL2 detected. Run chutvrc-windows-setup.bat from Windows instead.
 
 Reason: /etc/hosts edits inside WSL are not visible to browsers running on
 the Windows host. The Windows wrapper handles hosts editing via PowerShell
@@ -85,7 +85,7 @@ if [ -z "$PKG" ]; then
     fail "ERROR: Unsupported package manager.
 
 This script auto-installs prerequisites only on apt / dnf / pacman based
-distros. For others (zypper, apk, NixOS, Gentoo, etc.), follow MANUAL_SETUP.md
+distros. For others (zypper, apk, NixOS, Gentoo, etc.), follow docs/MANUAL_SETUP.md
 for the manual installation steps, then re-run this script — it will detect
 the binaries already on PATH and skip the install steps."
 fi
@@ -110,7 +110,7 @@ if ! command -v sudo &>/dev/null; then
 
 This script needs sudo to edit /etc/hosts (single-device mode) and to
 install packages. Either install sudo (su - then 'apt-get install sudo' /
-equivalent + add your user to the 'sudo' group), or follow MANUAL_SETUP.md
+equivalent + add your user to the 'sudo' group), or follow docs/MANUAL_SETUP.md
 to do those steps manually as root."
 fi
 echo ""
@@ -296,7 +296,7 @@ m_v=$(mutagen version 2>/dev/null | head -1 | awk '{print $NF}')
 mc_v=$(mutagen-compose version 2>/dev/null | head -1 | awk '{print $NF}')
 if [ -n "$m_v" ] && [ -n "$mc_v" ] && [ "$m_v" != "$mc_v" ]; then
     warn "  Mutagen versions disagree (mutagen=$m_v, mutagen-compose=$mc_v)."
-    warn "  See MANUAL_SETUP.md — they must match. You may hit obscure runtime errors."
+    warn "  See docs/MANUAL_SETUP.md — they must match. You may hit obscure runtime errors."
 fi
 success "  mutagen + mutagen-compose installed."
 

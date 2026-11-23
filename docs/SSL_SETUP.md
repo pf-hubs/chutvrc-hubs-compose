@@ -3,8 +3,8 @@
 This guide sets up trusted local SSL certificates using `mkcert` to resolve `ERR_CERT_AUTHORITY_INVALID` errors.
 
 > **Most users won't need to follow this directly.** The double-click setup
-> scripts (`local-setup-mac.command` / `local-setup-windows.bat` — see
-> [`README.md`](README.md)) and the manual flow in
+> scripts (`chutvrc-mac-setup.command` / `chutvrc-windows-setup.bat` — see
+> [`README.md`](../README.md)) and the manual flow in
 > [`MANUAL_SETUP.md`](MANUAL_SETUP.md) already handle the steps below. This
 > file is kept as a focused, standalone reference for cases where you only
 > need to (re)generate the certificates.
