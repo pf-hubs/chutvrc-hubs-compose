@@ -42,7 +42,7 @@ export type Pane = { frames: CastFrame[]; label: string };
  * Two panes side by side, each cropped, from PC time `from` to `to` on a grid of `fps`: at every step each
  * pane shows its last frame produced by then. A title bar above, the pane labels and the time inside.
  */
-export function sideBySideVideo(opts: { panes: [Pane, Pane]; from: number; to: number; crop: Crop; title: string; out: string; workDir: string; fps?: number }) {
+export function sideBySideVideo(opts: { panes: [Pane] | [Pane, Pane]; from: number; to: number; crop: Crop; title: string; out: string; workDir: string; fps?: number }) {
   const fps = opts.fps ?? 30;
   prepareWorkDir(opts.workDir);
   const steps = Math.max(1, Math.floor(((opts.to - opts.from) / 1000) * fps));
@@ -64,9 +64,8 @@ export function sideBySideVideo(opts: { panes: [Pane, Pane]; from: number; to: n
   const label = (i: number) =>
     `[${i}:v]crop=${w}:${h}:${x}:${y},setsar=1,drawtext=fontfile=font.ttf:textfile=${stem}-label${i}.txt:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=8:x=12:y=12[p${i}]`;
   const filter = [
-    label(0),
-    label(1),
-    `[p0][p1]hstack=inputs=2,pad=iw:ih+52:0:52:color=0x1d2330,` +
+    ...opts.panes.map((_, i) => label(i)),
+    `${opts.panes.length === 2 ? "[p0][p1]hstack=inputs=2," : "[p0]"}pad=iw:ih+52:0:52:color=0x1d2330,` +
       `drawtext=fontfile=font.ttf:textfile=${stem}-title.txt:fontsize=24:fontcolor=white:x=14:y=14,` +
       `drawtext=fontfile=font.ttf:text='%{pts\\:hms}':fontsize=22:fontcolor=white:x=w-tw-14:y=15[v]`
   ].join(";");
@@ -74,8 +73,7 @@ export function sideBySideVideo(opts: { panes: [Pane, Pane]; from: number; to: n
     ffmpegPath(),
     [
       "-y", "-loglevel", "error",
-      "-f", "concat", "-safe", "0", "-i", lists[0],
-      "-f", "concat", "-safe", "0", "-i", lists[1],
+      ...lists.flatMap(list => ["-f", "concat", "-safe", "0", "-i", list]),
       "-filter_complex", filter,
       "-map", "[v]", "-fps_mode", "cfr", "-r", String(fps),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-movflags", "+faststart",

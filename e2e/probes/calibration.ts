@@ -1,8 +1,9 @@
-// The body calibration of the new solver (fix F4), read from outside the page: what a wearer's page applied
-// (the rig's scale, the view's height in the room, what it sends and announces) and how an observer's page
-// draws another client (the announced eye height it holds, the VR solver's ratio, the root bone's scale,
-// which of the new solvers it used). Read-only; the client logs its captures to the console, which the
-// harness already collects.
+// The body calibration (fix F4), read from outside the page: what a wearer's page applied (the rig's scale, the
+// view's height in the room, what it sends and announces) and how an observer's page draws another client (the
+// announced eye height it holds, the VR solver's ratio, the root bone's scale, which solver drew it). Read-only;
+// the client logs its captures to the console, which the harness already collects. The wearer's own head bone
+// is shrunk in first person (apply-to-bones.ts), so its view is read from the point of view node, and the drawn
+// eyes only from an observer.
 import type { Page } from "@playwright/test";
 import type { Client } from "../clients/launch";
 
@@ -14,9 +15,9 @@ export type BodyState = {
   eid: number | null;
   /** The standing eye height the client announced, in room metres, as this page holds it; null when none */
   announced: number | null;
-  /** The new solver's ratio for the model (ikState.modelRatio); null before the new solver ran on it */
+  /** The solver's ratio for the model (ikState.modelRatio); null before the solver ran on it */
   modelRatio: number | null;
-  /** Which new solver drew it last: "vr", "screen" or "npc"; null with the old solver */
+  /** Which solver drew it last: "vr", "screen" or "npc"; null before the first frame */
   solver: string | null;
   /** The root bone's scale: the size the model is drawn at over its own */
   rootScale: number | null;
@@ -24,7 +25,6 @@ export type BodyState = {
   modelEye: number | null;
   /** The head height in the pose this page holds for the client, in the rig's space */
   headY: number | null;
-  newSolver: boolean;
 };
 
 /** How `page` draws `clientId`'s avatar */
@@ -41,8 +41,7 @@ export function bodyState(page: Page, clientId: string): Promise<BodyState> {
       solver: ik?.ikState?.solver ?? null,
       rootScale: num(ik?.rig?.bones?.root?.scale?.y),
       modelEye: num(ik?.modelEyeHeight?.()),
-      headY: num(APP.avatarPoses.get(id)?.head.pos.y),
-      newSolver: !!APP.store.state.preferences.avatarIkV2
+      headY: num(APP.avatarPoses.get(id)?.head.pos.y)
     };
   }, clientId);
 }
@@ -62,7 +61,7 @@ export type OwnView = {
   deviceHeadY: number | null;
   /** Its own model's eye height at the model's size */
   ownModelEye: number | null;
-  preferences: { avatarIkV2: boolean; bodyHeightCm: number; bodyPosture: string; bodyFit: string };
+  preferences: { bodyHeightCm: number; bodyPosture: string; bodyFit: string };
   inVr: boolean;
 };
 
@@ -91,7 +90,7 @@ export function ownView(page: Page): Promise<OwnView> {
       announced: r(APP.avatarPoses.announcedEyeHeightOf(APP.sfu.clientId)),
       deviceHeadY: r((window as any).xrDevice?.position.y),
       ownModelEye: r(ik?.modelEyeHeight?.()),
-      preferences: { avatarIkV2: !!p.avatarIkV2, bodyHeightCm: p.bodyHeightCm, bodyPosture: p.bodyPosture, bodyFit: p.bodyFit },
+      preferences: { bodyHeightCm: p.bodyHeightCm, bodyPosture: p.bodyPosture, bodyFit: p.bodyFit },
       inVr: scene.is("vr-mode")
     };
   });
@@ -99,13 +98,13 @@ export function ownView(page: Page): Promise<OwnView> {
 
 export type CaptureEntry = { t: number; kind: "captured" | "timedOut"; height: number | null };
 
-/** The page's capture results, from its console: "captured the headset at 1.620 m", or the time-out warning; `from` is an index into the log */
+/** The page's capture results, from its console: "captured the headset at 1.620 m", or the warning that no capture was taken; `from` is an index into the log */
 export function captureLog(client: Client, from = 0): CaptureEntry[] {
   const out: CaptureEntry[] = [];
   for (const e of client.log.slice(from)) {
     const m = /^Body calibration: captured the headset at ([\d.]+) m/.exec(e.text);
     if (m) out.push({ t: e.t, kind: "captured", height: Number(m[1]) });
-    else if (/^Body calibration: the headset was not steady for a second/.test(e.text)) out.push({ t: e.t, kind: "timedOut", height: null });
+    else if (/^Body calibration: no capture was taken/.test(e.text)) out.push({ t: e.t, kind: "timedOut", height: null });
   }
   return out;
 }

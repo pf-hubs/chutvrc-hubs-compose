@@ -2,6 +2,7 @@
 import type { Page } from "@playwright/test";
 import type { Client } from "./launch";
 import { IS_CONNECTED } from "../probes/compat";
+import { answerCapturePrompt } from "./motion";
 
 export type EntryTimings = {
   load: number;
@@ -13,13 +14,18 @@ export type EntryTimings = {
   /** QUEST: when the immersive session presented (the client requests it itself on Enter Room) */
   presenting?: number;
   /**
-   * The body calibration of the new solver (asked before the first VR entry): "form" when the client showed
-   * its form and it was filled, "seeded" when the values were put into the preferences before Join Room,
-   * "saved" when the profile had them already, "none" when the entry did not need them (old solver, or not in VR)
+   * The body calibration, a step of every VR entry on the current build: "form" when its fields were filled in,
+   * "seeded" when the values were put into the preferences before Join Room and the form only confirmed them,
+   * "saved" when the profile had them and the form only confirmed them, "none" when the entry has no such step
+   * (not in VR, or the previous build)
    */
   calibration?: "form" | "seeded" | "saved" | "none";
-  /** When the calibration form showed, from the start (only with "form") */
+  /** When the calibration form showed, from the start */
   calibrationShown?: number;
+  /** The label of the form's button when it was pressed: "Continue" with the saved values unchanged */
+  calibrationButton?: string;
+  /** QUEST: whether both triggers took the headset's height; null when the entry left the prompt unanswered */
+  captured?: boolean | null;
 };
 
 export type BodyPosture = "standing" | "sitting";
@@ -47,16 +53,17 @@ export type EnterOptions = {
   /** Extra query string, e.g. "?force_tcp" */
   query?: string;
   /**
-   * The body calibration a headset client needs with the new solver on ("Use the new avatar body solver
-   * (experimental)", preference avatarIkV2) and no height saved: without it the client shows its form between
-   * the name step and the microphone setup and cannot enter in VR. `via: "seed"` (the default) puts the values
-   * into the preferences before Join Room, as a player who calibrated earlier has them; `via: "form"` fills the
-   * client's form as a person does. Left out, a headset client that would be asked is seeded with
-   * DEFAULT_CALIBRATION. A form that shows without `via: "form"` fails the entry.
+   * The body calibration of a headset client. Every VR entry shows the form between the name step and the
+   * microphone setup, filled in with the saved values. `via: "seed"` (the default) puts the values into the
+   * preferences before Join Room, as a player who calibrated earlier has them, and presses "Continue";
+   * `via: "form"` fills the client's form as a person does. Left out, a profile with a saved height keeps it and a
+   * headset without one is seeded with DEFAULT_CALIBRATION.
    */
   calibration?: Partial<Calibration> & { via?: "seed" | "form" };
-  /** With `calibration.via: "form"`: called once the form shows, before it is filled (T5a tries the form there) */
+  /** Called once the calibration form shows, before it is filled or confirmed (T5a tries the form there) */
   onCalibrationForm?: (page: Page) => Promise<void>;
+  /** QUEST: false leaves the height capture's prompt unanswered after the entry; by default both triggers answer it */
+  capture?: boolean;
   /** Run just before Enter Room is pressed: e.g. to hold the emulated headset where the height capture should find it */
   beforeEnter?: (page: Page) => Promise<void>;
   /** The page already shows the room's lobby (opened by the test): Join Room is pressed there without loading the page again */
@@ -83,37 +90,27 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   // Only once the lobby shows: a profile change is sent on the room's channel (HubChannel.sendProfileUpdate),
   // which throws while the channel does not exist yet
   if (opts.avatarUrl) await page.evaluate(url => (window as any).APP.store.update({ profile: { avatarId: url } }), opts.avatarUrl);
-  const vr = client.profile === "QUEST" || client.profile === "OLD_QUEST";
-  // E2E_QUEST_NEW_SOLVER=1: a headset test that does not set the solver itself runs with the new one on and no
-  // height saved, so its entry goes through the calibration (seeded, below): the existing VR tests with F4
-  // Otherwise a test that does not set the solver gets the client's default, the old solver, and the default
-  // fit and posture: a signed-in profile keeps what an earlier test (T5) set. The previous build's store has no
-  // such preferences and reports them as invalid, so it is left alone
-  const preferences =
-    opts.preferences?.avatarIkV2 !== undefined || client.profile === "OLD" || client.profile === "OLD_QUEST"
-      ? opts.preferences
-      : client.profile === "QUEST" && process.env.E2E_QUEST_NEW_SOLVER === "1"
-        ? { ...opts.preferences, avatarIkV2: true, bodyHeightCm: 0 }
-        : { ...opts.preferences, avatarIkV2: false, bodyPosture: "standing", bodyFit: "avatarToPlayer" };
+  // The previous build has neither the calibration step nor these preferences (its store reports them as invalid)
+  const oldBuild = client.profile === "OLD" || client.profile === "OLD_QUEST";
+  const calibrates = client.profile === "QUEST";
+  // A signed-in profile keeps the fit and posture an earlier test (T5) set; a test that needs others gives them
+  const preferences = oldBuild ? opts.preferences : { bodyPosture: "standing", bodyFit: "avatarToPlayer", ...opts.preferences };
   if (preferences) await page.evaluate(preferences => (window as any).APP.store.update({ preferences }), preferences);
   const wanted: Calibration = { ...DEFAULT_CALIBRATION, ...opts.calibration };
-  const saved = await page.evaluate(() => {
-    const p = (window as any).APP.store.state.preferences;
-    return { newSolver: !!p.avatarIkV2, heightCm: p.bodyHeightCm as number | undefined };
-  });
-  const calibrated = typeof saved.heightCm === "number" && saved.heightCm >= 50 && saved.heightCm <= 250;
-  let calibration: EntryTimings["calibration"] = !vr || !saved.newSolver ? "none" : calibrated ? "saved" : undefined;
-  if (vr && saved.newSolver && opts.calibration?.via !== "form" && (!calibrated || opts.calibration)) {
+  const savedHeight = await page.evaluate(() => (window as any).APP.store.state.preferences.bodyHeightCm as number | undefined);
+  const calibrated = typeof savedHeight === "number" && savedHeight >= 50 && savedHeight <= 250;
+  let calibration: EntryTimings["calibration"] = !calibrates ? "none" : calibrated ? "saved" : undefined;
+  if (calibrates && opts.calibration?.via !== "form" && (!calibrated || opts.calibration)) {
     await page.evaluate(c => (window as any).APP.store.update({ preferences: { bodyHeightCm: c.heightCm, bodyPosture: c.posture, bodyFit: c.fit } }), wanted);
     calibration = "seeded";
   }
   await join.click();
 
-  // The name and avatar step, the body calibration (new solver, first VR entry) or the microphone step comes next
+  // The name and avatar step, the body calibration (every VR entry) or the microphone step comes next
   const accept = page.getByRole("button", { name: "Accept" });
   const enter = page.getByRole("button", { name: "Enter Room" });
-  const saveCalibration = page.getByRole("button", { name: "Save and Continue" });
-  await accept.or(enter).or(saveCalibration).first().waitFor({ state: "visible", timeout: 60_000 });
+  const calibrationForm = page.getByLabel("Your height (cm)");
+  await accept.or(enter).or(calibrationForm).first().waitFor({ state: "visible", timeout: 60_000 });
   if (await accept.isVisible()) {
     await page.getByLabel("Display Name").fill(opts.displayName);
     await accept.click();
@@ -121,16 +118,20 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   const profile = since();
 
   let calibrationShown: number | undefined;
-  await enter.or(saveCalibration).first().waitFor({ state: "visible", timeout: 60_000 });
-  if (await saveCalibration.isVisible()) {
+  let calibrationButton: string | undefined;
+  if (calibrates) {
+    await enter.or(calibrationForm).first().waitFor({ state: "visible", timeout: 60_000 });
+    if (!(await calibrationForm.isVisible())) throw new Error(`the body calibration form did not show on a VR entry (saved height ${savedHeight})`);
     calibrationShown = since();
-    if (opts.calibration?.via !== "form") throw new Error("the body calibration form showed although the test gave no calibration to fill (calibration.via \"form\")");
     if (opts.onCalibrationForm) await opts.onCalibrationForm(page);
-    await fillCalibration(page, wanted);
-    await saveCalibration.click();
-    calibration = "form";
-  } else if (opts.calibration?.via === "form") {
-    throw new Error(`the body calibration form did not show (the profile's preferences: new solver ${saved.newSolver}, height ${saved.heightCm})`);
+    if (opts.calibration?.via === "form") {
+      await fillCalibration(page, wanted);
+      calibration = "form";
+    }
+    // "Continue" with the saved values unchanged, "Save and Continue" otherwise (BodyCalibrationModal.js)
+    const submit = page.getByRole("button", { name: /^(Save and )?Continue$/ });
+    calibrationButton = (await submit.textContent())?.trim();
+    await submit.click();
   }
 
   await enter.waitFor({ state: "visible", timeout: 60_000 });
@@ -152,16 +153,19 @@ export async function enterRoom(client: Client, hubId: string, opts: EnterOption
   // With the Quest Browser's user agent the client forces VR entry: Enter Room requests the immersive
   // session, which IWER provides (TRIALS.md, trial b)
   let presenting: number | undefined;
+  let captured: boolean | null = null;
   if (client.profile === "QUEST" || client.profile === "OLD_QUEST") {
-    await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout: 60_000 });
+    await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout: 60_000, polling: 100 });
     presenting = since();
+    // The capture waits for both triggers, up to a minute, with the cursors off meanwhile
+    if (calibrates && opts.capture !== false) captured = await answerCapturePrompt(page);
   } else {
     await skipTour(page);
   }
-  return { load, joinVisible, profile, mic, entered, mediaServer, presenting, calibration: calibration ?? "none", calibrationShown };
+  return { load, joinVisible, profile, mic, entered, mediaServer, presenting, calibration: calibration ?? "none", calibrationShown, calibrationButton, captured };
 }
 
-/** The body calibration form's fields (BodyCalibrationModal.js), filled as a person does; the Save button is left to the caller */
+/** The body calibration form's fields (BodyCalibrationModal.js), filled as a person does; its button is left to the caller */
 export async function fillCalibration(page: Page, c: Partial<Calibration>) {
   if (c.posture) await checkRadio(page, c.posture === "sitting" ? /^Sitting/ : /^Standing/);
   if (c.heightCm !== undefined) await page.getByLabel("Your height (cm)").fill(String(c.heightCm));

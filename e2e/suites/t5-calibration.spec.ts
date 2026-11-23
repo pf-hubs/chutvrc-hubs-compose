@@ -1,25 +1,27 @@
-// The body calibration of the new solver (fix F4; plan section 3, the F4 rows), beside T5's motion battery:
+// The body calibration (fix F4; plan section 3, the F4 rows), beside T5's motion battery:
 //
-// - T5a, the calibration flow on a headset: the form before the first VR entry (it cannot be passed
-//   without a valid height), the saved values, a second entry that skips it, Preferences changing it, the
-//   capture of the headset's height (within 10 s on a steady headset) and its fallback to the entered height
-//   when the headset keeps moving;
+// - T5a, the calibration flow on a headset: the form at every VR entry (it cannot be passed without a valid
+//   height; with the saved values unchanged it offers "Continue"), the saved values, Preferences changing them,
+//   the capture of the headset's height on a press of both triggers (a press with the head tilted is refused and
+//   asked again), and its fallback to the entered height when nobody presses for a minute;
 // - T5b, "Fit the avatar to me" seen by two observers, one joining late, then an avatar change: both draw
 //   the same size, and the player's height stays across the change;
 // - T5c, "Fit me to the avatar": the wearer's eyes at the model's eye height, walking scaled with the rig,
 //   an object at arm's length grabbed with the controller, observers drawing the model at its own size;
-// - T4.11 with F4: an old-build headset beside the new build, drawn by a new-solver observer at the model's
-//   own size, and a calibrated new-build headset in both fits as an old-solver observer draws it.
+// - T5d, the in-world "Capture height again" button;
+// - T4.11 with F4: an old-build headset beside the new build, drawn by an observer at the model's own size, and
+//   what the old build holds of the new client.
 //
 // The emulated headset (QUEST profile, IWER) is held where each step needs it; what the pages applied is read
-// with probes/calibration.ts, and the drawn eyes and soles with the inverse kinematics probe (probes/ik.ts).
+// with probes/calibration.ts, and the drawn eyes and soles, from an observer, with the inverse kinematics probe
+// (probes/ik.ts).
 import { test } from "./harness";
 import type { Evidence } from "../report/evidence";
 import { room, type MediaServer } from "../lib/fixtures";
 import type { Client } from "../clients/launch";
 import { enterRoom, fillCalibration, type BodyFit, type EntryTimings } from "../clients/enter";
 import * as input from "../clients/input";
-import { enterVr, exitVr, playTimeline, startTimeline, stopTimeline, yawPitchRoll, type Keyframe, type Timeline } from "../clients/motion";
+import { answerCapturePrompt, captureState, enterVr, exitVr, playTimeline, pressBothTriggers, yawPitchRoll, type Keyframe, type Timeline } from "../clients/motion";
 import { hideAvatarsExcept, observerPlace, placeRig, type Framing } from "../clients/stage";
 import { VR_MOTIONS } from "../motions/battery";
 import { MODEL_URL } from "../assets/generate";
@@ -43,11 +45,11 @@ const meta = (id: string, server: MediaServer, covers = "V6") => ({
   ]
 });
 
-const NEW_SOLVER = { avatarIkV2: true };
-const OLD_SOLVER = { avatarIkV2: false };
 const HEIGHT_CM = 173;
-/** The capture must end within this on a steady headset, and gives up after it on a moving one */
+/** The press of both triggers comes as soon as the prompt shows: the height must be taken this soon after the session starts */
 const CAPTURE_LIMIT_MS = 10_000;
+/** Without a press the capture gives up after this (PRESS_TIMEOUT_SECONDS of the client's press-capture.ts) */
+const CAPTURE_GIVE_UP_MS = 60_000;
 const SIZE_AGREEMENT = 0.01;
 const FIT_TITLE: Record<BodyFit, string> = { avatarToPlayer: "Fit the avatar to me", playerToAvatar: "Fit me to the avatar" };
 
@@ -60,16 +62,6 @@ function hold(ms: number, parts: Partial<Keyframe> = {}): Timeline {
   return { name: "hold", keyframes: [{ ...k, t: 0 }, { ...k, t: ms }] };
 }
 const holdStand = (page: Client["page"], ms: number) => playTimeline(page, hold(ms));
-
-/** The head bobbing 8 cm up and down once a second for `ms`: never a steady second */
-function bobbing(ms: number, headY = STAND.head!.pos[1]): Timeline {
-  const keyframes: Keyframe[] = [];
-  for (let t = 0; t <= ms; t += 100) {
-    const y = headY + 0.04 * Math.sin((2 * Math.PI * t) / 1000);
-    keyframes.push({ ...STAND, head: { ...STAND.head!, pos: [STAND.head!.pos[0], y, STAND.head!.pos[2]] }, t });
-  }
-  return { name: "bobbing", keyframes };
-}
 
 /** The headset's capture results since a log index, and how long after the last session start they came */
 function captureSince(c: Client, from: number) {
@@ -89,7 +81,7 @@ async function drawnFor(observer: Client, id: string, ms: number): Promise<IkSum
 
 const near = (a: number | null | undefined, b: number | null | undefined, tol: number) => typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= tol;
 const fmt = (v: number | null | undefined, d = 3) => (typeof v === "number" ? v.toFixed(d) : "–");
-const stateText = (s: BodyState) => `holds ${fmt(s.announced)} m, model eye ${fmt(s.modelEye)} m, ratio ${fmt(s.modelRatio, 4)}, root scale ${fmt(s.rootScale, 4)}, ${s.solver ?? "old"} solver`;
+const stateText = (s: BodyState) => `holds ${fmt(s.announced)} m, model eye ${fmt(s.modelEye)} m, ratio ${fmt(s.modelRatio, 4)}, root scale ${fmt(s.rootScale, 4)}, ${s.solver ?? "no"} solver`;
 
 /**
  * Waits until every observer draws the subject's model with its eye height and returns the subject's client
@@ -135,7 +127,7 @@ async function subjectReached(evidence: Evidence, observers: Client[], subject: 
       id = await idOf(subject);
     } else {
       evidence.note(`${when}: ${text}; workaround applied: ${missing.map(o => o.name).join(", ")} enter(s) the room again (known one-way failure on Dialog, #21, #34)`);
-      for (const o of missing) await enterRoom(o, hubId, { displayName: o.name, preferences: NEW_SOLVER });
+      for (const o of missing) await enterRoom(o, hubId, { displayName: o.name });
     }
   }
 }
@@ -147,10 +139,10 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
   const hub = room(mainRoom(server));
   const [q, o] = await startClients(evidence, [
     { identity: "t5a-quest", slot: "a", name: "A-quest", profile: "QUEST" },
-    { identity: "t5-new", slot: "c", name: "C-new-solver" }
+    { identity: "t5-new", slot: "c", name: "C-observer" }
   ]);
-  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: a fresh headset profile with the new solver on and no height saved (preferences put before Join Room), ${AVATARS.rpm.describe}; C-new-solver: a DESK observer with the new solver`);
-  await enterRoom(o, hub.hubId, { displayName: o.name, preferences: NEW_SOLVER });
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: a fresh headset profile with no height saved (preferences put before Join Room), ${AVATARS.rpm.describe}; C-observer: a DESK observer`);
+  await enterRoom(o, hub.hubId, { displayName: o.name });
 
   // 1. The form
   const form: Record<string, unknown> = {};
@@ -158,7 +150,7 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
   const first = await enterRoom(q, hub.hubId, {
     displayName: q.name,
     avatarUrl: avatarUrl("rpm"),
-    preferences: { ...NEW_SOLVER, bodyHeightCm: 0, bodyPosture: "standing", bodyFit: "avatarToPlayer" },
+    preferences: { bodyHeightCm: 0, bodyPosture: "standing", bodyFit: "avatarToPlayer" },
     calibration: { via: "form", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
     onCalibrationForm: async page => {
       const save = page.getByRole("button", { name: "Save and Continue" });
@@ -186,10 +178,11 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
       await holdStand(page, 200);
     }
   });
-  await evidence.check("The first VR entry shows the form, which cannot be passed without a valid height (50 to 250 cm)", "V6", async () => {
+  await evidence.check("A VR entry without a saved height shows the form, which cannot be passed without a valid height (50 to 250 cm)", "V6", async () => {
     const tries = form.tries as { value: string; saveDisabled: boolean; error: boolean }[];
     const ok =
       first.calibration === "form" &&
+      first.calibrationButton === "Save and Continue" &&
       form.emptyDisabled === true &&
       form.enteredInVrBeforeSave === false &&
       tries.every(t => (["49", "251", "0"].includes(t.value) ? t.saveDisabled && t.error : !t.saveDisabled && !t.error)) &&
@@ -198,7 +191,7 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
     return {
       ok,
       summary:
-        `form shown ${(first.calibrationShown! / 1000).toFixed(1)} s after the room opened, before the microphone step; not in VR yet: ${!form.enteredInVrBeforeSave}; Save disabled while empty: ${form.emptyDisabled}; ` +
+        `form shown ${(first.calibrationShown! / 1000).toFixed(1)} s after the room opened, before the microphone step; not in VR yet: ${!form.enteredInVrBeforeSave}; its button "${first.calibrationButton}"; Save disabled while empty: ${form.emptyDisabled}; ` +
         tries.map(t => `${t.value}: Save ${t.saveDisabled ? "disabled" : "enabled"}${t.error ? ", error shown" : ""}`).join("; ") +
         `; saved height after a forced click with an empty field: ${form.storeAfterInvalidSave}; ${HEIGHT_CM} enables Save: ${form.validEnabled}`,
       data: { first, form }
@@ -207,18 +200,18 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
   await evidence.check("The values are saved", "V6", async () => {
     const own = await ownView(q.page);
     const p = own.preferences;
-    return { ok: p.bodyHeightCm === HEIGHT_CM && p.bodyPosture === "standing" && p.bodyFit === "avatarToPlayer" && p.avatarIkV2, summary: `preferences: height ${p.bodyHeightCm} cm, ${p.bodyPosture}, ${p.bodyFit}, new solver ${p.avatarIkV2}; in VR ${own.inVr}`, data: own };
+    return { ok: p.bodyHeightCm === HEIGHT_CM && p.bodyPosture === "standing" && p.bodyFit === "avatarToPlayer", summary: `preferences: height ${p.bodyHeightCm} cm, ${p.bodyPosture}, ${p.bodyFit}; in VR ${own.inVr}`, data: own };
   });
   await holdStand(q.page, 2500);
   let qid = await idOf(q);
-  await evidence.check(`The capture on a steady headset ends within ${CAPTURE_LIMIT_MS / 1000} s and takes its height; the observer receives it`, "V6", async () => {
+  await evidence.check(`Both triggers, with the head level, take the headset's height within ${CAPTURE_LIMIT_MS / 1000} s of the session's start; the observer receives it`, "V6", async () => {
     const c = captureSince(q, logFrom);
     const own = await ownView(q.page);
     const seen = await waitUntil(async () => {
       const s = await bodyState(o.page, qid);
       return s.announced !== null ? s : null;
     }, 15_000);
-    const ok = c.result?.kind === "captured" && near(c.result.height, STAND.head!.pos[1], 0.005) && c.ms !== null && c.ms <= CAPTURE_LIMIT_MS && near(own.announced, c.result.height, 0.002) && near(seen.value?.announced, c.result.height, 0.002);
+    const ok = first.captured === true && c.result?.kind === "captured" && near(c.result.height, STAND.head!.pos[1], 0.005) && c.ms !== null && c.ms <= CAPTURE_LIMIT_MS && near(own.announced, c.result.height, 0.002) && near(seen.value?.announced, c.result.height, 0.002);
     return {
       ok,
       summary: `captured ${fmt(c.result?.height)} m (held at ${STAND.head!.pos[1]}) ${c.ms} ms after the session started; announced ${fmt(own.announced)} m; the observer ${seen.value ? stateText(seen.value) : "holds no eye height"}`,
@@ -227,28 +220,34 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
   });
   await evidence.screenshot(q, "own-view-after-capture");
 
-  // 2. The second entry
+  // 2. The second entry: the form again, with the saved values, and "Continue"
   const logFrom2 = q.log.length;
-  const second = await enterRoom(q, hub.hubId, {
-    displayName: q.name,
-    preferences: NEW_SOLVER,
-    beforeEnter: async page => {
-      await markXrSessions(page);
-      await holdStand(page, 200);
-    }
-  });
+  const secondForm: { height?: string; button?: string } = {};
+  const enterAgain = () =>
+    enterRoom(q, hub.hubId, {
+      displayName: q.name,
+      onCalibrationForm: async page => {
+        secondForm.height = await page.getByLabel("Your height (cm)").inputValue();
+        secondForm.button = (await page.getByRole("button", { name: /^(Save and )?Continue$/ }).textContent())?.trim();
+      },
+      beforeEnter: async page => {
+        await markXrSessions(page);
+        await holdStand(page, 200);
+      }
+    });
+  const second = await enterAgain();
   await holdStand(q.page, 2500);
   // The page was loaded again: a new client id, which the observer has to draw before its view is read
   qid = await subjectReached(evidence, [o], q, async () => {
-    await enterRoom(q, hub.hubId, { displayName: q.name, preferences: NEW_SOLVER, beforeEnter: async page => { await markXrSessions(page); await holdStand(page, 200); } });
+    await enterAgain();
     await holdStand(q.page, 2500);
   }, hub.hubId, "after A's second entry");
-  await evidence.check("The second entry skips the form and captures again", "V6", async () => {
+  await evidence.check('The second entry shows the form with the saved values, "Continue" passes it, and the triggers capture again', "V6", async () => {
     const c = captureSince(q, logFrom2);
     return {
-      ok: second.calibration === "saved" && second.calibrationShown === undefined && c.result?.kind === "captured" && c.ms !== null && c.ms <= CAPTURE_LIMIT_MS,
-      summary: `entry: calibration ${second.calibration} (form ${second.calibrationShown === undefined ? "not shown" : "shown"}), in VR after ${((second.presenting ?? 0) / 1000).toFixed(1)} s; capture ${c.result?.kind ?? "none"} ${fmt(c.result?.height)} m after ${c.ms} ms`,
-      data: { second, capture: c }
+      ok: second.calibration === "saved" && second.calibrationShown !== undefined && secondForm.height === String(HEIGHT_CM) && secondForm.button === "Continue" && c.result?.kind === "captured" && c.ms !== null && c.ms <= CAPTURE_LIMIT_MS,
+      summary: `entry: calibration ${second.calibration}, the form showing ${secondForm.height ?? "?"} cm with the button "${secondForm.button ?? "?"}", in VR after ${((second.presenting ?? 0) / 1000).toFixed(1)} s; capture ${c.result?.kind ?? "none"} ${fmt(c.result?.height)} m after ${c.ms} ms`,
+      data: { second, secondForm, capture: c }
     };
   });
 
@@ -320,27 +319,50 @@ async function calibrationFlow(evidence: Evidence, server: MediaServer) {
     };
   });
 
-  // 4. The fallback: a headset that keeps moving
+  // 4. A press with the head tilted is refused and asked again
   await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyFit: "avatarToPlayer" } }));
   await exitVr(q.page);
   await q.page.waitForTimeout(800);
+  const logTilted = q.log.length;
+  await holdStand(q.page, 200);
+  await enterVr(q.page, undefined, { capture: false });
+  const asking = await waitUntil(async () => ((await captureState(q.page)) === "asking" ? true : null), 10_000, 100);
+  await playTimeline(q.page, hold(800, { head: { ...STAND.head!, quat: yawPitchRoll(0, 40) } }));
+  await pressBothTriggers(q.page);
+  await q.page.waitForTimeout(500);
+  const afterTilted = { state: await captureState(q.page), results: captureLog(q, logTilted).length };
+  await evidence.screenshot(q, "capture-prompt-after-tilted-press");
+  await holdStand(q.page, 800);
+  await pressBothTriggers(q.page);
+  const levelTaken = await waitUntil(async () => (captureLog(q, logTilted).length ? true : null), 3000, 100);
+  await evidence.check("A press with the head tilted 40° is refused and asked again; a level press takes the height", "V6", async () => {
+    const r = captureLog(q, logTilted)[0] ?? null;
+    return {
+      ok: !!asking.value && afterTilted.state === "asking" && afterTilted.results === 0 && !!levelTaken.value && r?.kind === "captured" && near(r.height, STAND.head!.pos[1], 0.005),
+      summary: `prompt shown ${asking.value ? `after ${asking.ms} ms` : "not within 10 s"}; after the tilted press the capture is ${afterTilted.state} with ${afterTilted.results} answers; after a level press: ${r ? `${r.kind} ${fmt(r.height)} m` : "no answer"}`,
+      data: { afterTilted, result: r }
+    };
+  });
+
+  // 5. The fallback: nobody presses the triggers
+  await exitVr(q.page);
+  await q.page.waitForTimeout(800);
   const logFrom4 = q.log.length;
-  await startTimeline(q.page, bobbing(16_000));
-  await enterVr(q.page);
+  await holdStand(q.page, 200);
+  await enterVr(q.page, undefined, { capture: false });
   await q.page.waitForTimeout(2000);
-  await evidence.screenshot(q, "capture-prompt-while-moving");
-  const ended = await waitUntil(async () => (captureLog(q, logFrom4).length ? true : null), 15_000);
-  await stopTimeline(q.page);
+  await evidence.screenshot(q, "capture-prompt-waiting");
+  const ended = await waitUntil(async () => (captureLog(q, logFrom4).length ? true : null), CAPTURE_GIVE_UP_MS + 10_000);
   await holdStand(q.page, 1500);
   const fallback = await ownView(q.page);
   const observerFallback = await bodyState(o.page, qid);
-  await evidence.check("A headset that keeps moving: the capture gives up after 10 s and the entered height is used", "V6", async () => {
+  await evidence.check(`Without a press the capture gives up after ${CAPTURE_GIVE_UP_MS / 1000} s and the entered height is used`, "V6", async () => {
     const c = captureSince(q, logFrom4);
     const entered = 1.8 * EYE_HEIGHT_SHARE;
-    const ok = !!ended.value && c.result?.kind === "timedOut" && c.ms !== null && c.ms >= CAPTURE_LIMIT_MS - 300 && c.ms <= CAPTURE_LIMIT_MS + 1500 && near(fallback.announced, entered, 0.002) && near(observerFallback.announced, entered, 0.002);
+    const ok = !!ended.value && c.result?.kind === "timedOut" && c.ms !== null && c.ms >= CAPTURE_GIVE_UP_MS - 300 && c.ms <= CAPTURE_GIVE_UP_MS + 3000 && near(fallback.announced, entered, 0.002) && near(observerFallback.announced, entered, 0.002);
     return {
       ok,
-      summary: `the head bobbing ±4 cm once a second: ${c.result?.kind ?? "no answer"} after ${c.ms} ms; announced ${fallback.announced} m (180 cm x ${EYE_HEIGHT_SHARE} = ${entered.toFixed(3)}); the observer ${stateText(observerFallback)}`,
+      summary: `no press: ${c.result?.kind ?? "no answer"} after ${c.ms} ms; announced ${fallback.announced} m (180 cm x ${EYE_HEIGHT_SHARE} = ${entered.toFixed(3)}); the observer ${stateText(observerFallback)}`,
       data: { capture: c, fallback, observerFallback }
     };
   });
@@ -355,16 +377,15 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
   const hub = room(mainRoom(server));
   const [q, b, c] = await startClients(evidence, [
     { identity: "quest1", slot: "a", name: "A-quest", profile: "QUEST" },
-    { identity: "t5-new", slot: "b", name: "B-new-solver" },
-    { identity: "t5-old", slot: "c", name: "C-late-new-solver" }
+    { identity: "t5-new", slot: "b", name: "B-observer" },
+    { identity: "t5-old", slot: "c", name: "C-late-observer" }
   ]);
-  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: new solver, ${HEIGHT_CM} cm, standing, "Fit the avatar to me", ${AVATARS.rpm.describe}; B and C both with the new solver; C enters after A has captured its height`);
-  await enterRoom(b, hub.hubId, { displayName: b.name, preferences: NEW_SOLVER });
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: ${HEIGHT_CM} cm, standing, "Fit the avatar to me", ${AVATARS.rpm.describe}; B and C are DESK observers; C enters after A has captured its height`);
+  await enterRoom(b, hub.hubId, { displayName: b.name });
   const enterQ = async () => {
     await enterRoom(q, hub.hubId, {
       displayName: q.name,
       avatarUrl: avatarUrl("rpm"),
-      preferences: NEW_SOLVER,
       calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
       beforeEnter: page => holdStand(page, 200)
     });
@@ -373,7 +394,7 @@ async function twoObservers(evidence: Evidence, server: MediaServer) {
   await enterQ();
   let qid = await idOf(q);
   const t0 = Date.now();
-  await enterRoom(c, hub.hubId, { displayName: c.name, preferences: NEW_SOLVER });
+  await enterRoom(c, hub.hubId, { displayName: c.name });
   const lateModel = await waitUntil(async () => {
     const s = await bodyState(c.page, qid);
     return s.eid !== null && s.announced !== null && s.modelRatio !== null ? s : null;
@@ -457,16 +478,15 @@ async function playerToAvatar(evidence: Evidence, server: MediaServer, avatar: A
   // Both signed in as the room's owner: placing and moving objects needs the permission members lack here
   const [q, o] = await startClients(evidence, [
     { identity: "quest-admin", account: "admin", slot: "a", name: "A-quest", profile: "QUEST" },
-    { identity: "admin", account: "admin", slot: "c", name: "C-new-solver" }
+    { identity: "admin", account: "admin", slot: "c", name: "C-observer" }
   ]);
   const url = avatarUrl(avatar);
-  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: new solver, ${HEIGHT_CM} cm, standing, "Fit me to the avatar", ${AVATARS[avatar].describe}; both clients signed in as the room's owner (to place and grab an object); C-new-solver a DESK observer`);
-  await enterRoom(o, hub.hubId, { displayName: o.name, preferences: NEW_SOLVER });
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest: ${HEIGHT_CM} cm, standing, "Fit me to the avatar", ${AVATARS[avatar].describe}; both clients signed in as the room's owner (to place and grab an object); C-observer a DESK observer`);
+  await enterRoom(o, hub.hubId, { displayName: o.name });
   const enterQ = async () => {
     await enterRoom(q, hub.hubId, {
       displayName: q.name,
       avatarUrl: url,
-      preferences: NEW_SOLVER,
       calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "playerToAvatar" },
       beforeEnter: page => holdStand(page, 200)
     });
@@ -618,15 +638,14 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
     { identity: "t5-new", slot: "b", name: "B-observer" }
   ]);
   evidence.note(
-    `room ${hub.hubId} (${hub.mediaServer}); C-old-quest: the previous build (hubs feature/sfu-refactor) in the emulated headset, ${AVATARS.rpm.describe}; A-quest: the new build, new solver, ${HEIGHT_CM} cm standing, ${AVATARS.vrm0.describe}; ` +
-      "B-observer: DESK, the new solver first (drawing the old build's headset), then the old solver (drawing A in both fits)"
+    `room ${hub.hubId} (${hub.mediaServer}); C-old-quest: the previous build (hubs feature/sfu-refactor) in the emulated headset, ${AVATARS.rpm.describe}; A-quest: the new build, ${HEIGHT_CM} cm standing, ${AVATARS.vrm0.describe}; ` +
+      "B-observer: DESK on the new build, drawing the old build's headset"
   );
-  await enterRoom(d, hub.hubId, { displayName: d.name, preferences: NEW_SOLVER });
+  await enterRoom(d, hub.hubId, { displayName: d.name });
   await enterRoom(old, hub.hubId, { displayName: old.name, avatarUrl: avatarUrl("rpm") });
   await enterRoom(q, hub.hubId, {
     displayName: q.name,
     avatarUrl: avatarUrl("vrm0"),
-    preferences: NEW_SOLVER,
     calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
     beforeEnter: page => holdStand(page, 200)
   });
@@ -634,7 +653,7 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
   await frameRateCheck(evidence, [old, q, d]);
   const [idOld, idq] = [await idOf(old), await idOf(q)];
 
-  // The old build's headset, as the new solver draws it
+  // The old build's headset, as the new build draws it
   const place = observerPlace(FRAMING);
   await placeRig(old.page, FRAMING.subject.x, FRAMING.subject.z, FRAMING.subject.yawDeg).catch(() => {});
   await placeRig(q.page, FRAMING.subject.x + 3, FRAMING.subject.z, FRAMING.subject.yawDeg);
@@ -654,8 +673,8 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
   }
   const oldState = await bodyState(d.page, idOld);
   const oldDrawn = await drawnFor(d, idOld, 2000);
-  await evidence.screenshot(d, "new-solver-draws-old-build");
-  await evidence.check("An old-build headset is drawn by the new solver at the model's own size, without errors", "V9 V6", async () => {
+  await evidence.screenshot(d, "new-build-draws-old-build");
+  await evidence.check("An old-build headset is drawn by the new build at the model's own size, without errors", "V9 V6", async () => {
     const errors = d.log.filter(e => (e.type === "error" || e.type === "pageerror") && /avatar|ik|solve|ratio/i.test(e.text)).map(e => e.text.slice(0, 200));
     return {
       ok: oldState.announced === null && near(oldState.modelRatio, 1, 1e-6) && near(oldState.rootScale, 1, 1e-6) && oldState.solver === "vr" && oldDrawn.nanFrames === 0 && errors.length === 0,
@@ -683,42 +702,6 @@ async function oldBuildWithCalibration(evidence: Evidence, server: MediaServer) 
     };
   });
 
-  // The old solver's picture of a calibrated headset, both fits
-  await placeRig(old.page, FRAMING.subject.x + 3, FRAMING.subject.z, FRAMING.subject.yawDeg).catch(() => {});
-  await placeRig(q.page, FRAMING.subject.x, FRAMING.subject.z, FRAMING.subject.yawDeg);
-  await d.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: false } }));
-  // A's model was moved out of B's view for the first part: back to its place, the old build's out
-  await d.page.evaluate(id => {
-    const APP = (window as any).APP;
-    const model = APP.world.eid2obj.get(APP.sfu.avatarSync.models.avatarEidByClientId.get(id));
-    if (model) {
-      model.position.y = 0;
-      model.matrixNeedsUpdate = true;
-      model.updateMatrix();
-    }
-  }, idq);
-  await hideAvatarsExcept(d, [idq]);
-  const fits: Record<string, unknown> = {};
-  for (const fit of ["avatarToPlayer", "playerToAvatar"] as const) {
-    await q.page.evaluate(f => (window as any).APP.store.update({ preferences: { bodyFit: f } }), fit);
-    await holdStand(q.page, 2000);
-    const st = await bodyState(d.page, idq);
-    const standing = await drawnFor(d, idq, 1500);
-    await evidence.screenshot(d, `old-solver-${fit}-standing`);
-    await startTimeline(q.page, hold(2500, { right: { ...STAND.right!, pos: [0.19, 1.43, -0.6] }, left: { ...STAND.left!, pos: [-0.19, 1.6, -0.45] } }));
-    await q.page.waitForTimeout(800);
-    const reaching = await drawnFor(d, idq, 1200);
-    await evidence.screenshot(d, `old-solver-${fit}-reaching`);
-    fits[fit] = { state: st, own: await ownView(q.page), standing, reaching };
-  }
-  await evidence.check('The old solver\'s picture of a calibrated headset, "Fit the avatar to me" and "Fit me to the avatar" (recorded)', "V6", async () => {
-    const line = (fit: BodyFit) => {
-      const f = fits[fit] as { state: BodyState; own: { rigScale: number; announced: number | null }; standing: IkSummary; reaching: IkSummary };
-      return `${FIT_TITLE[fit]} (A's rig scale ${f.own.rigScale}, announces ${fmt(f.own.announced)}): root scale ${fmt(f.state.rootScale)}; standing: hands ${fmt(f.standing.handErrMean, 1)} cm from the controllers, eyes ${fmt(f.standing.eyeErrMean, 1)} cm from the headset, soles ${fmt(f.standing.footMin, 1)} cm; reaching: hands ${fmt(f.reaching.handErrMean, 1)} cm`;
-    };
-    return { ok: true, summary: `recorded only (the old solver draws the model at its own size): ${line("avatarToPlayer")}; ${line("playerToAvatar")}`, data: fits };
-  });
-  await d.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: true } }));
   await closingChecks(evidence, [old, q, d], ALLOW);
 }
 
@@ -837,7 +820,7 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
   // Standing at 1.70 m: a capture there differs from the 173 cm entered (1.619 m), so a capture kept is told from the entered height
   const HEAD = 1.7;
   const standAt = (ms: number, y = HEAD, extra: Partial<Keyframe> = {}) => playTimeline(q.page, hold(ms, { head: { ...STAND.head!, pos: [STAND.head!.pos[0], y, STAND.head!.pos[2]] }, ...extra }));
-  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest alone: new solver on, ${HEIGHT_CM} cm standing, "Fit the avatar to me", the page switched to Japanese (preference locale "ja") after entry; its headset held at ${HEAD} m`);
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-quest alone: ${HEIGHT_CM} cm standing, "Fit the avatar to me", the page switched to Japanese (preference locale "ja") after entry; its headset held at ${HEAD} m`);
   // A run that stopped half way leaves the profile in Japanese; the entry helper reads the English entry UI
   await q.page.goto(q.roomUrl(hub.hubId), { waitUntil: "domcontentloaded", timeout: 120_000 });
   await q.page.waitForFunction(() => !!(window as any).APP?.store, undefined, { timeout: 120_000 });
@@ -845,7 +828,7 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
   const logFrom = q.log.length;
   await enterRoom(q, hub.hubId, {
     displayName: q.name,
-    preferences: { ...NEW_SOLVER, locale: "en" },
+    preferences: { locale: "en" },
     calibration: { via: "seed", heightCm: HEIGHT_CM, posture: "standing", fit: "avatarToPlayer" },
     beforeEnter: async page => {
       await markXrSessions(page);
@@ -855,15 +838,18 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
   });
   await standAt(2500);
   const entrySamples = await stopButtonSampler(q.page);
-  await evidence.check("The button stays hidden while the entry capture runs, and shows once it is taken", "V6", async () => {
+  await evidence.check("The button stays hidden while the entry capture waits for the triggers, and shows once the height is taken", "V6", async () => {
     const promptOn = entrySamples.filter(s => s[2] === 1);
-    const both = entrySamples.filter(s => s[1] === 1 && s[2] === 1).length;
+    const firstButton = entrySamples.findIndex(s => s[1] === 1);
+    const waiting = entrySamples.slice(0, firstButton < 0 ? entrySamples.length : firstButton).filter(s => s[2] === 1).length;
+    const stayed = firstButton >= 0 && entrySamples.slice(firstButton).every(s => s[1] === 1);
+    // The prompt goes on showing the captured height for 1.5 s (CONFIRM_SECONDS of vr-capture.ts) beside the button
     const lastPrompt = promptOn.length ? promptOn[promptOn.length - 1][0] : null;
-    const firstAfter = lastPrompt === null ? null : entrySamples.find(s => s[0] > lastPrompt && s[1] === 1);
+    const overlapMs = firstButton >= 0 && lastPrompt !== null ? Math.max(0, lastPrompt - entrySamples[firstButton][0]) : null;
     const c = captureSince(q, logFrom);
     return {
-      ok: promptOn.length > 0 && both === 0 && !!firstAfter && c.result?.kind === "captured",
-      summary: `${entrySamples.length} samples every 50 ms from Enter Room: the prompt shown in ${promptOn.length}, the button and the prompt together in ${both}; the button shown ${firstAfter && lastPrompt !== null ? `${firstAfter[0] - lastPrompt} ms after the prompt went` : "never after the prompt"}; capture ${c.result?.kind ?? "none"} ${fmt(c.result?.height)} m after ${c.ms} ms`,
+      ok: waiting > 0 && stayed && overlapMs !== null && overlapMs <= 2000 && c.result?.kind === "captured",
+      summary: `${entrySamples.length} samples every 50 ms from Enter Room: the prompt alone, waiting for the triggers, in ${waiting}; the button ${firstButton >= 0 ? `shown from sample ${firstButton}${stayed ? " on" : ", then hidden again"}` : "never shown"}; the prompt showed the captured height beside it for ${overlapMs ?? "?"} ms; capture ${c.result?.kind ?? "none"} ${fmt(c.result?.height)} m after ${c.ms} ms`,
       data: { entrySamples, capture: c }
     };
   });
@@ -895,40 +881,46 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
     return closingChecks(evidence, [q], [...ALLOW, JA_MISSING]);
   }
 
-  // A click starts a capture; a steady head then takes it
+  // A click starts a capture; both triggers with the head level then take it
   const announcedBefore = (await ownView(q.page)).announced;
   const logClick = q.log.length;
   await clickButton(q.page, HEAD, quat);
   const afterClick = await buttonState(q.page);
   await evidence.screenshot(q, "after-click");
-  await standAt(2500);
+  await standAt(800);
+  await answerCapturePrompt(q.page);
+  await standAt(800);
   const c1 = captureLog(q, logClick);
   const back = await waitUntil(async () => ((await buttonState(q.page)).visible ? true : null), 3000, 100);
-  await evidence.check("A trigger click shows the prompt and hides the button; a steady second captures and the button returns", "V6", async () => ({
+  await evidence.check("A trigger click shows the prompt and hides the button; both triggers capture and the button returns", "V6", async () => ({
     ok: afterClick.promptVisible && !afterClick.visible && c1[0]?.kind === "captured" && near(c1[0]?.height, HEAD, 0.005) && !!back.value,
     summary: `right after the click: prompt ${afterClick.promptVisible ? "shown" : "not shown"}, button ${afterClick.visible ? "shown" : "hidden"}; then ${c1[0] ? `${c1[0].kind} ${fmt(c1[0].height)} m` : "no capture"} ("Body calibration: captured the headset at …" in the console); the button back ${back.value ? `${back.ms} ms later` : "not within 3 s"}; announced ${announcedBefore} m before`,
     data: { afterClick, c1 }
   }));
 
-  // A moving headset keeps the previous capture
+  // A repeated capture nobody answers keeps the previous one
   const logMove = q.log.length;
   const quat2 = (await aimAtButton(q.page, HEAD)) ?? quat;
   await clickButton(q.page, HEAD, quat2);
   const afterClick2 = await buttonState(q.page);
-  await playTimeline(q.page, bobbing(12_000, HEAD));
+  await standAt(1000);
+  await waitUntil(async () => (captureLog(q, logMove).length ? true : null), CAPTURE_GIVE_UP_MS + 5000);
   await standAt(1000);
   const moved = captureLog(q, logMove);
   const keep = await ownView(q.page);
-  await evidence.check("A headset that keeps moving through a repeated capture keeps the previous calibration", "V6", async () => ({
+  await evidence.check("A repeated capture without a press gives up and keeps the previous calibration", "V6", async () => ({
     ok: moved[0]?.kind === "timedOut" && near(keep.announced, HEAD, 0.002),
-    summary: `after a click (prompt ${afterClick2.promptVisible ? "shown" : "not shown"}) the head bobbing ±4 cm for 12 s: ${moved[0]?.kind ?? "no answer"}; announced ${keep.announced} m (the previous capture ${HEAD} m, not the entered height ${((HEIGHT_CM / 100) * EYE_HEIGHT_SHARE).toFixed(3)} m)`,
+    summary: `after a click (prompt ${afterClick2.promptVisible ? "shown" : "not shown"}) nobody presses the triggers for ${CAPTURE_GIVE_UP_MS / 1000} s: ${moved[0]?.kind ?? "no answer"}; announced ${keep.announced} m (the previous capture ${HEAD} m, not the entered height ${((HEIGHT_CM / 100) * EYE_HEIGHT_SHARE).toFixed(3)} m)`,
     data: { moved, keep }
   }));
 
   // Seated: the tracking offset stays while a capture is taken again
   const SEATED = 1.15;
+  // A change of posture starts a capture of its own
   await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyPosture: "sitting" } }));
-  await standAt(3000, SEATED);
+  await standAt(800, SEATED);
+  await answerCapturePrompt(q.page);
+  await standAt(1500, SEATED);
   const seated = await ownView(q.page);
   const seatedQuat = await aimAtButton(q.page, SEATED);
   let during: (number | null)[] = [];
@@ -940,6 +932,7 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
       await q.page.waitForTimeout(200);
     }
     await play;
+    await answerCapturePrompt(q.page);
   }
   await evidence.check("Seated, the tracking offset stays while the height is captured again", "V6", async () => {
     const want = (HEIGHT_CM / 100) * EYE_HEIGHT_SHARE;
@@ -951,7 +944,9 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
     };
   });
   await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { bodyPosture: "standing" } }));
-  await standAt(2500);
+  await standAt(800);
+  await answerCapturePrompt(q.page);
+  await standAt(1000);
 
   // When the button is not shown
   const states: Record<string, boolean> = {};
@@ -960,17 +955,12 @@ async function captureButton(evidence: Evidence, server: MediaServer) {
   states["no height saved"] = (await buttonState(q.page)).visible;
   await q.page.evaluate(h => (window as any).APP.store.update({ preferences: { bodyHeightCm: h } }), HEIGHT_CM);
   await standAt(2500);
-  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: false } }));
-  await standAt(500, HEAD, lookUp(HEAD));
-  states["new solver off"] = (await buttonState(q.page)).visible;
-  await q.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: true } }));
-  await standAt(2500);
-  states["back on, steady"] = (await buttonState(q.page)).visible;
+  states["height saved again"] = (await buttonState(q.page)).visible;
   await exitVr(q.page);
   await q.page.waitForTimeout(800);
   states["outside VR"] = (await buttonState(q.page)).visible;
-  await evidence.check("The button is not shown without a saved height, with the new solver off, or outside VR", "V6", async () => ({
-    ok: !states["no height saved"] && !states["new solver off"] && states["back on, steady"] && !states["outside VR"],
+  await evidence.check("The button is not shown without a saved height or outside VR", "V6", async () => ({
+    ok: !states["no height saved"] && states["height saved again"] && !states["outside VR"],
     summary: Object.entries(states).map(([k, v]) => `${k}: ${v ? "shown" : "hidden"}`).join("; "),
     data: states
   }));

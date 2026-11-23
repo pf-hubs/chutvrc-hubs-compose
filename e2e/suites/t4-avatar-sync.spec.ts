@@ -741,9 +741,7 @@ async function headsetFlags(evidence: Evidence, server: MediaServer) {
     // Moving a disconnected controller must not move anything
     await playTimeline(q.page, hold("disconnected controller moved", 2500, { ...raised, left: { pos: [-0.6, 0.9, 0.2], quat: [0, 0, 0, 1], connected: false } }));
   });
-  // Both solvers: the setting belongs to the viewer (plan T5), so B switches it and reads its copy again
-  const leftHandAtB = { old: await avatarHandHeight(b, idq, false), new: await avatarHandHeight(b, idq, true) };
-  await b.page.evaluate(() => (window as any).APP.store.update({ preferences: { avatarIkV2: false } }));
+  const leftHandAtB = await avatarHandHeight(b, idq);
   await setControllerConnected(q.page, "left", true);
   await phase("in VR, left controller back", () => q.page.waitForTimeout(3000));
   let exited = true;
@@ -826,19 +824,18 @@ async function headsetFlags(evidence: Evidence, server: MediaServer) {
     const rests = (h: { handAboveHips: number } | null) => h !== null && h.handAboveHips < 0.25;
     const text = (h: { handAboveHips: number } | null) => (h === null ? "no model drawn, not readable" : `${h.handAboveHips.toFixed(2)} m above the hips`);
     return {
-      ok: !!disconnected && disconnected.leftHandMovedAtB < 0.01 && rests(leftHandAtB.old) && rests(leftHandAtB.new),
+      ok: !!disconnected && disconnected.leftHandMovedAtB < 0.01 && rests(leftHandAtB),
       summary:
         `while disconnected B's copy of the left hand moved ${disconnected ? (disconnected.leftHandMovedAtB * 100).toFixed(1) : "?"} cm (the disconnected controller was moved 1 m); ` +
-        `the avatar's left hand bone at B: old solver ${text(leftHandAtB.old)}, new solver ${text(leftHandAtB.new)} (judged resting below 0.25 m; the controller was last at 1.75 m, above the head)`,
+        `the avatar's left hand bone at B: ${text(leftHandAtB)} (judged resting below 0.25 m; the controller was last at 1.75 m, above the head)`,
       data: { disconnected, leftHandAtB }
     };
   });
   await closingChecks(evidence, [q, b]);
 }
 
-/** Where the viewer's model of a client has its left hand, against the model's hips (world heights), with the old or the new solver */
-async function avatarHandHeight(viewer: Client, clientId: string, newSolver: boolean) {
-  await viewer.page.evaluate(v => (window as any).APP.store.update({ preferences: { avatarIkV2: v } }), newSolver);
+/** Where the viewer's model of a client has its left hand, against the model's hips (world heights) */
+async function avatarHandHeight(viewer: Client, clientId: string) {
   await viewer.page.waitForTimeout(1000);
   const state = await avatarState(viewer.page, clientId).catch(() => null);
   if (!state || state.eid === null || !state.leftHand || !state.hips) return null;

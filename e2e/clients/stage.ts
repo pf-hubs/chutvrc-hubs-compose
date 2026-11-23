@@ -99,8 +99,3 @@ export function hideAvatarsExcept(observer: Client, keep: string[]): Promise<str
     return hidden;
   }, keep);
 }
-
-/** The viewer setting "Use the new avatar body solver (experimental)" (preferences.avatarIkV2) */
-export async function setNewSolver(client: Client, on: boolean) {
-  await client.page.evaluate(v => (window as any).APP.store.update({ preferences: { avatarIkV2: v } }), on);
-}

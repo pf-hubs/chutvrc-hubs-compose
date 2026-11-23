@@ -97,7 +97,7 @@ const GROUPS: [RegExp, string][] = [
   [/^t2\./, "T2 Transport and media"],
   [/^t3\./, "T3 Public speaking"],
   [/^t4\./, "T4 Avatar sync"],
-  [/^t5-/, "T5 Inverse kinematics, old solver against new"],
+  [/^t5-/, "T5 Inverse kinematics"],
   [/^t6\./, "T6 Existing features and the upstream intake"],
   [/^t7\./, "T7 Device profiles"]
 ];
@@ -204,7 +204,7 @@ function matrixSection(rows: Row[], runs: Run[]): string {
       html += `<tr class="group"><th colspan="4">${esc(group)}</th></tr>`;
     }
     const t0 = row.key.startsWith("t0.");
-    const name = `<th scope="row" class="test"><span class="tid">${esc(row.key)}</span> ${esc(row.title.replace(/^T[0-9.]+ /, "").replace(/^T5 inverse kinematics, old solver against new: /, ""))}</th>`;
+    const name = `<th scope="row" class="test"><span class="tid">${esc(row.key)}</span> ${esc(row.title.replace(/^T[0-9.]+ /, "").replace(/^T5 inverse kinematics(, old solver against new)?: /, ""))}</th>`;
     if (t0) {
       const c = row.cells.dialog;
       const r = c.result;
@@ -624,7 +624,7 @@ export function summaryMarkdown(): string {
   const lines = rows.map(row =>
     row.key.startsWith("t0.")
       ? `| ${row.key} ${md(short(row.title.replace(/^T[0-9.]+ /, ""), 50))} | ${cell(row.cells.dialog)} (once, all blocks) | | |`
-      : `| ${row.key} ${md(short(row.title.replace(/^T[0-9.]+ /, "").replace(/^T5 inverse kinematics, old solver against new: /, ""), 50))} | ${runs.map(r => cell(row.cells[r.block])).join(" | ")} |`
+      : `| ${row.key} ${md(short(row.title.replace(/^T[0-9.]+ /, "").replace(/^T5 inverse kinematics(, old solver against new)?: /, ""), 50))} | ${runs.map(r => cell(row.cells[r.block])).join(" | ")} |`
   );
   return [
     `| Block | ${statuses.join(" | ")} |`,

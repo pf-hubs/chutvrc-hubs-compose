@@ -141,6 +141,8 @@ Other results of these runs: the first Dialog T2.10 attempt began one-way (A nev
 
 ## Harness changes for F4
 
+As the harness was for these runs. Since then the client has one solver: the `avatarIkV2` preference, `E2E_QUEST_NEW_SOLVER`, `T7_NEW_SOLVER` and T5's old-solver observer are gone from the harness, and T5 judges the hands against fixed limits taken from the tables below.
+
 - `clients/enter.ts`: the new solver's body calibration on a headset's entry, filled through the form (`calibration.via: "form"`, with a hook to try the form first) or put into the preferences before Join Room (the default; a headset with the new solver and no height gets 173 cm, standing, "Fit the avatar to me"); a form nobody asked for fails the entry; `beforeEnter` holds the emulated headset; `E2E_QUEST_NEW_SOLVER=1` runs existing headset tests with the new solver.
 - `probes/ik.ts`: rest-pose measures at the model's own size times `ikState.modelRatio` each frame, the root's scale beside it; the eye error raw and with the knee slack (3 cm x ratio), the eyes' height and their offset from the headset; the model's arm length.
 - `probes/calibration.ts`: what a wearer's page applied, its captures, and how an observer draws a client.

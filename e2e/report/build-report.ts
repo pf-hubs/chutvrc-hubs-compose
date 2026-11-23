@@ -181,33 +181,33 @@ function filesSection(t: TestResult): string {
   return sheetList + gridList + thumbs + videoList + otherList;
 }
 
-/** T5 at a glance: per block, avatar and mode, the old and the new solver over all motions (the summary test's t5-verdicts.json) */
+/** T5 at a glance: per block, avatar and mode, over all motions (the summary test's t5-verdicts.json; a run from before the one solver has old and new numbers) */
 function ikSection(dir: string, tests: TestResult[]): string {
   // Summaries that ran in this run's block (the other block's are skipped and have no verdicts)
   const summaries = tests.filter(t => t.id.startsWith("t5-summary-") && fs.existsSync(path.join(dir, t.id, "t5-verdicts.json")));
   if (!summaries.length) return "";
-  const arrow = (a: unknown, b: unknown) => `${a ?? "–"} → ${b ?? "–"}`;
+  const cell = (v: any, key: string) => (v.old ? `${v.old[key] ?? "–"} → ${v.new[key] ?? "–"}` : `${v.ik[key] ?? "–"}`);
   const blocks = summaries
     .map(t => {
       const verdicts = readJson<any[]>(path.join(dir, t.id, "t5-verdicts.json")) ?? [];
       const rows = verdicts
         .map(
           v => `<tr><td>${esc(v.avatar)}</td><td>${esc(v.mode)}</td><td><a href="#${esc(v.test)}">${badge(v.status)}</a></td>
-            <td>${esc(arrow(v.old.handErrMean, v.new.handErrMean))}</td><td>${esc(arrow(v.old.handErrMax, v.new.handErrMax))}</td>
-            <td>${esc(arrow(v.old.elbowWrong, v.new.elbowWrong))}</td><td>${esc(arrow(v.old.kneeWrong, v.new.kneeWrong))}</td>
-            <td>${esc(arrow(v.old.footMin, v.new.footMin))}</td><td>${esc(arrow(v.old.jumpPosMax, v.new.jumpPosMax))}</td><td>${esc(arrow(v.old.nanFrames, v.new.nanFrames))}</td></tr>`
+            <td>${esc(cell(v, "handErrMean"))}</td><td>${esc(cell(v, "handErrMax"))}</td>
+            <td>${esc(cell(v, "elbowWrong"))}</td><td>${esc(cell(v, "kneeWrong"))}</td>
+            <td>${esc(cell(v, "footMin"))}</td><td>${esc(cell(v, "jumpPosMax"))}</td><td>${esc(cell(v, "nanFrames"))}</td></tr>`
         )
         .join("");
       const sheets = t.files.filter(f => f.kind === "sheet").map(f => `<a href="${href(t.id, f.file)}">${esc(f.label)}</a>`).join(" · ");
       const videos = t.files.filter(f => f.kind === "video").map(f => `<a href="${href(t.id, f.file)}">${esc(f.file)}</a>`).join(" · ");
       const csv = t.files.filter(f => f.file.endsWith(".csv")).map(f => `<a href="${href(t.id, f.file)}">${esc(f.file)}</a>`).join(" · ");
       return `<h3><a href="#${esc(t.id)}">${esc(t.title)}</a> ${badge(t.status)}</h3>
-        <table class="checks"><thead><tr><th>Avatar</th><th>Mode</th><th>Test</th><th>Hand error mean, cm (old → new)</th><th>Hand error max, cm</th><th>Wrong-side elbow frames</th><th>Wrong-side knee frames</th><th>Lowest sole, cm</th><th>Largest joint jump, cm</th><th>NaN frames</th></tr></thead><tbody>${rows}</tbody></table>
+        <table class="checks"><thead><tr><th>Avatar</th><th>Mode</th><th>Test</th><th>Hand error mean, cm</th><th>Hand error max, cm</th><th>Wrong-side elbow frames</th><th>Wrong-side knee frames</th><th>Lowest sole, cm</th><th>Largest joint jump, cm</th><th>NaN frames</th></tr></thead><tbody>${rows}</tbody></table>
         <p>Contact sheets: ${sheets || '<span class="muted">none</span>'}<br>Summary videos: ${videos || '<span class="muted">none</span>'}<br>Numbers: ${csv || '<span class="muted">none</span>'}</p>`;
     })
     .join("");
-  return `<h2>Inverse kinematics, old solver against new (T5)</h2><div class="panel">${blocks}
-    <p class="muted">Each test of an avatar and mode has its own per-frame numbers (ik-metrics.csv), per-motion numbers (ik-summary.csv), and a side-by-side video per motion; hand error exists only in VR.</p></div>`;
+  return `<h2>Inverse kinematics (T5)</h2><div class="panel">${blocks}
+    <p class="muted">Each test of an avatar and mode has its own per-frame numbers (ik-metrics.csv), per-motion numbers (ik-summary.csv), and a video per motion; hand error exists only in VR. A run from before the client had one solver shows old → new.</p></div>`;
 }
 
 function testCard(t: TestResult): string {

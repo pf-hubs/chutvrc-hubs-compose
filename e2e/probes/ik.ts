@@ -8,10 +8,12 @@
 // head and hands, which are in the rig's space (positions in metres; the rig turned by its YXZ angles).
 //
 // Per frame (degrees and centimetres):
-// - hand: hand bone to the controller (position), and the hand bone's orientation against the controller's
-//   turned by the hand correction both solvers apply (a quarter turn about z for a model facing -z, a third
-//   of a turn about x otherwise), and the wrist's bend (the hand's rest axis against the forearm);
-// - the drawn size: the new solver draws a VR sender's model at its ratio (the sender's announced standing
+// - hand: hand bone to the controller (position), and the hand bone's orientation against the one the solver
+//   gives it: the controller's, turned by the grip (ik/vr/hand-grip.ts) and the offset measured for this
+//   model's hand (rig.hands); a hand that could not be measured takes the solver's fixed turn instead (a
+//   quarter turn about z for a model facing -z, a sixth of a turn about x otherwise). And the wrist's bend
+//   (the hand's rest axis against the forearm);
+// - the drawn size: the solver draws a VR sender's model at its ratio (the sender's announced standing
 //   eye height over the eye height of the model this observer loaded, ikState.modelRatio) and scales the
 //   root bone by it. Every rest-pose measure (the ankles' rest height, the eye height) is taken at the
 //   model's own size and multiplied by that ratio each frame; the root's actual scale is recorded beside it;
@@ -31,6 +33,9 @@
 // - spine twist: the yaw from the hips' facing to the chest's and from the chest's to the head's; and how
 //   far the hips face away from where the headset looks;
 // - NaN: values that are not finite in the world matrices of the model's bones.
+//
+// Always read from another client's page: a client shrinks its own head bone to scale 0.0001 in first person
+// (ik/apply-to-bones.ts), which takes the eyes with it, so the probe refuses a client's own model.
 import type { Page } from "@playwright/test";
 import { NotApplicable } from "./compat";
 
@@ -75,6 +80,28 @@ const IkMath = (() => {
     return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
   };
   const qAxisAngle = (axis, a) => { const s = Math.sin(a / 2); return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(a / 2)]; };
+  /** three.js's Quaternion.setFromRotationMatrix for the matrix with these columns */
+  const qFromBasis = (x, y, z) => {
+    const [m11, m21, m31] = x, [m12, m22, m32] = y, [m13, m23, m33] = z;
+    const trace = m11 + m22 + m33;
+    if (trace > 0) { const s = 0.5 / Math.sqrt(trace + 1); return [(m32 - m23) * s, (m13 - m31) * s, (m21 - m12) * s, 0.25 / s]; }
+    if (m11 > m22 && m11 > m33) { const s = 2 * Math.sqrt(1 + m11 - m22 - m33); return [0.25 * s, (m12 + m21) / s, (m13 + m31) / s, (m32 - m23) / s]; }
+    if (m22 > m33) { const s = 2 * Math.sqrt(1 + m22 - m11 - m33); return [(m12 + m21) / s, 0.25 * s, (m23 + m32) / s, (m13 - m31) / s]; }
+    const s = 2 * Math.sqrt(1 + m33 - m11 - m22);
+    return [(m13 + m31) / s, (m23 + m32) / s, 0.25 * s, (m21 - m12) / s];
+  };
+  /**
+   * The grip of one hand, as buildHandGrip of the client's ik/vr/hand-grip.ts makes it: the hand's frame (x
+   * along the fingers, y out of its back) in the controller's axes, a handshake turned by the three angles (degrees)
+   */
+  const handGrip = (side, raise, roll, bend) => {
+    const mirror = side === "left" ? -1 : 1;
+    const shake = side === "left" ? [[0, 0, -1], [-1, 0, 0], [0, 1, 0]] : [[0, 0, -1], [1, 0, 0], [0, -1, 0]];
+    let q = qFromBasis(shake[0], shake[1], shake[2]);
+    q = qMul(q, qAxisAngle([0, 1, 0], (mirror * raise) / RAD));
+    q = qMul(q, qAxisAngle([1, 0, 0], (-mirror * roll) / RAD));
+    return qMul(q, qAxisAngle([0, 0, 1], -bend / RAD));
+  };
   /** Degrees of the turn between two orientations */
   const qAngle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]))) * RAD;
   /** A point given in the rig's space, in the room's space */
@@ -97,7 +124,7 @@ const IkMath = (() => {
     if (bend === null || len(leaves) < 1e-4 || len(folds) < 1e-4) return [bend === null ? 0 : bend, null];
     return [bend, angle(leaves, folds)];
   };
-  return { RAD, add, sub, scale, dot, len, norm, dist, angle, across, qMul, qInv, qRot, qFromEulerYXZ, qAxisAngle, qAngle, rigToWorld, worldToRig, yawOf, wrapDeg, bendSide };
+  return { RAD, add, sub, scale, dot, len, norm, dist, angle, across, qMul, qInv, qRot, qFromEulerYXZ, qAxisAngle, qFromBasis, handGrip, qAngle, rigToWorld, worldToRig, yawOf, wrapDeg, bendSide };
 })();
 `;
 
@@ -110,7 +137,6 @@ export const IK_FIELDS = [
   "seq",
   "isVR",
   "tracked",
-  "newSolver",
   "modelRatio",
   "rootScale",
   "handErrL",
@@ -177,6 +203,8 @@ export type IkInfo = {
   skeletonBones: number;
   /** Upper arm plus forearm at the model's own size (metres, the mean of both sides); null without arm bones */
   armLength: number | null;
+  /** How the client measured each hand (rig.hands): "fingers" or "rest pose"; null when it could not, and the fixed turn applies */
+  handSource: { left: string | null; right: string | null };
 };
 
 /**
@@ -184,6 +212,13 @@ export type IkInfo = {
  * (STANDING_KNEE_SLACK of the client's ik/vr/solve-vr-body.ts): the legs keep a bend while the user stands
  */
 export const KNEE_SLACK = 0.03;
+
+/**
+ * The grip's angles in degrees (HAND_GRIP_DEGREES of the client's ik/vr/hand-grip.ts, which keeps them inside the
+ * module): to be changed with it when the grip is tuned on a headset. A `hand_grip=raise,roll,bend` in the
+ * observer's address replaces them, as it does for the client's solver.
+ */
+export const HAND_GRIP_DEGREES = { raise: 20, roll: 0, bend: 0 };
 
 /** The recorder in page code: window.__e2eIk.start(key, clientId), .stop(key), .info(clientId), .ownCheck() */
 export const IK_PROBE = `(() => {
@@ -204,6 +239,7 @@ export const IK_PROBE = `(() => {
     if (!models || !APP.world || !APP.world.eid2Ik) return { notApplicable: true };
     const eid = models.avatarEidByClientId.get(clientId);
     if (eid === undefined) return null;
+    if (clientId === APP.sfu.clientId) return { notApplicable: true, ownModel: true };
     const ik = APP.world.eid2Ik.get(eid);
     if (!ik || !ik.rig) return null;
     const rig = ik.rig;
@@ -212,7 +248,7 @@ export const IK_PROBE = `(() => {
     const names = new Map();
     for (const [name, bone] of Object.entries(B)) if (bone) names.set(bone, name);
     // Root space: the frame of the root's children with the root at the origin, unturned, at the model's own
-    // size (the new solver scales the root by its ratio; each frame multiplies these measures by it)
+    // size (the solver scales the root by its ratio; each frame multiplies these measures by it)
     const mats = new Map([[B.root, new THREE.Matrix4()]]);
     const restMatrix = o => {
       if (mats.has(o)) return mats.get(o);
@@ -256,9 +292,17 @@ export const IK_PROBE = `(() => {
     };
     // The hand's rest axis: the forearm's direction at rest, in the hand's frame
     const handAxis = side => restPos[side + "Hand"] && restPos[side + "LowerArm"] ? local(side + "Hand", M.norm(M.sub(restPos[side + "Hand"], restPos[side + "LowerArm"]))) : null;
-    const correction = rig.isFlippedY
-      ? { left: M.qAxisAngle([0, 0, 1], Math.PI / 2), right: M.qAxisAngle([0, 0, 1], -Math.PI / 2) }
-      : { left: M.qAxisAngle([1, 0, 0], -Math.PI / 3), right: M.qAxisAngle([1, 0, 0], -Math.PI / 3) };
+    // The turn from the controller's orientation to the hand bone's, as turnWithController of the client's
+    // ik/vr/solve-vr-body.ts makes it: the grip and the offset measured for this model, or the fixed turn
+    const given = new URLSearchParams(location.search).get("hand_grip");
+    const parts = given ? given.split(",").map(Number) : [];
+    const grip = parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite) ? { raise: parts[0], roll: parts[1], bend: parts[2] } : ${JSON.stringify(HAND_GRIP_DEGREES)};
+    const handTurn = side => {
+      const measured = rig.hands && rig.hands[side];
+      if (measured) return M.qMul(M.handGrip(side, grip.raise, grip.roll, grip.bend), arr4(measured.boneOffset));
+      return rig.isFlippedY ? M.qAxisAngle([0, 0, 1], side === "left" ? Math.PI / 2 : -Math.PI / 2) : M.qAxisAngle([1, 0, 0], -Math.PI / 3);
+    };
+    const correction = { left: handTurn("left"), right: handTurn("right") };
     const eyes = ["leftEye", "rightEye"].filter(n => restPos[n]);
     const model = APP.world.eid2obj.get(eid);
     const skeleton = new Set();
@@ -280,7 +324,8 @@ export const IK_PROBE = `(() => {
           const arm = side => restPos[side + "UpperArm"] && restPos[side + "LowerArm"] && restPos[side + "Hand"] ? M.dist(restPos[side + "UpperArm"], restPos[side + "LowerArm"]) + M.dist(restPos[side + "LowerArm"], restPos[side + "Hand"]) : null;
           const v = [arm("left"), arm("right")].filter(x => x !== null);
           return v.length ? r(v.reduce((a, x) => a + x, 0) / v.length, 4) : null;
-        })()
+        })(),
+        handSource: { left: rig.hands && rig.hands.left ? rig.hands.left.source : null, right: rig.hands && rig.hands.right ? rig.hands.right.source : null }
       }
     };
   };
@@ -304,12 +349,9 @@ export const IK_PROBE = `(() => {
     out.seq = pose.seq;
     out.isVR = pose.isVR ? 1 : 0;
     out.tracked = pose.tracked;
-    const newSolver = !!APP.store.state.preferences.avatarIkV2;
-    out.newSolver = newSolver ? 1 : 0;
-    // The size the model is drawn at over its own: the new solver's ratio (1 for the screen and chatbot
-    // solvers); the old solver draws the model at its own size
+    // The size the model is drawn at over its own: the solver's ratio (1 for the screen and chatbot solvers)
     const state = ctx.ik.ikState;
-    const ratio = newSolver && state && Number.isFinite(state.modelRatio) && state.modelRatio > 0 ? state.modelRatio : 1;
+    const ratio = state && Number.isFinite(state.modelRatio) && state.modelRatio > 0 ? state.modelRatio : 1;
     out.modelRatio = r(ratio, 5);
     out.rootScale = r(B.root.scale.y, 5);
     out.rigX = r(rigPos[0], 4);
@@ -363,8 +405,8 @@ export const IK_PROBE = `(() => {
     if (eyes) {
       out.eyeErr = r(M.dist(eyes, headset) * 100, 2);
       // The VR solver hangs the body KNEE_SLACK (model metres) under the exact eye height, so the drawn eyes
-      // are meant to sit that times the ratio under the headset; only in VR with the new solver
-      const slack = newSolver && pose.isVR ? ${KNEE_SLACK} * ratio : 0;
+      // are meant to sit that times the ratio under the headset; only in VR
+      const slack = pose.isVR ? ${KNEE_SLACK} * ratio : 0;
       out.eyeErrSlack = r(M.dist(eyes, [headset[0], headset[1] - slack, headset[2]]) * 100, 2);
       out.eyeDy = r((eyes[1] - headset[1]) * 100, 2);
       out.eyeHeight = r(eyes[1] - rigPos[1], 4);
@@ -409,7 +451,7 @@ export const IK_PROBE = `(() => {
   window.__e2eIk = {
     info(clientId) {
       const ctx = prepare(clientId);
-      return ctx && ctx.notApplicable ? { notApplicable: true } : ctx ? ctx.info : null;
+      return ctx && ctx.notApplicable ? { notApplicable: true, ownModel: !!ctx.ownModel } : ctx ? ctx.info : null;
     },
     start(key, clientId) {
       const run = { clientId, ctx: null, frames: [], missing: 0, errors: [], running: true, info: null };
@@ -421,7 +463,10 @@ export const IK_PROBE = `(() => {
           const eid = window.APP.sfu.avatarSync.models.avatarEidByClientId.get(clientId);
           if (!run.ctx || run.ctx.eid !== eid) {
             run.ctx = eid === undefined ? null : prepare(clientId);
-            if (run.ctx && run.ctx.notApplicable) run.ctx = null;
+            if (run.ctx && run.ctx.notApplicable) {
+              if (run.ctx.ownModel && !run.errors.length) run.errors.push("the probe was given the page's own client: its head bone is shrunk in first person, read it from an observer");
+              run.ctx = null;
+            }
             if (run.ctx && !run.info) run.info = run.ctx.info;
           }
           const row = run.ctx ? sample(run.ctx) : null;
@@ -476,6 +521,7 @@ export async function installIk(page: Page) {
 export async function ikInfo(page: Page, clientId: string): Promise<IkInfo | null> {
   await installIk(page);
   const info = await page.evaluate(id => (window as any).__e2eIk.info(id), clientId);
+  if (info?.ownModel) throw new Error("the inverse kinematics probe was given the page's own client: its head bone is shrunk in first person, read it from an observer");
   if (info?.notApplicable) throw new NotApplicable("the inverse kinematics probe needs the avatar model manager and APP.world.eid2Ik");
   return info;
 }
@@ -544,6 +590,11 @@ export type IkSummary = {
   footMin: number | null;
   belowFloorFrames: number;
   footMax: number | null;
+  /**
+   * The highest sole over the second half of the frames: feet step over time (ik/shared/feet.ts), so a foot may
+   * still be finishing a step when a recording starts
+   */
+  footMaxSettled: number | null;
   /** Total horizontal sliding of the feet while on the floor (cm) */
   slide: number;
   jumpPosMax: number | null;
@@ -559,7 +610,7 @@ export type IkSummary = {
   bodyTurnMax: number | null;
   bodyTurnEnd: number | null;
   nanFrames: number;
-  /** The new solver's ratio and the root bone's scale, at the motion's end (1: the model's own size) */
+  /** The solver's ratio and the root bone's scale, at the motion's end (1: the model's own size) */
   modelRatio: number | null;
   rootScale: number | null;
 };
@@ -601,6 +652,7 @@ export function summariseIk(frames: IkFrame[]): IkSummary {
     footMin: r2(min(feet)),
     belowFloorFrames: frames.filter(x => [x.footL, x.footR].some(v => finite(v) && v < -BELOW_FLOOR_CM)).length,
     footMax: r2(max(feet)),
+    footMaxSettled: r2(max(frames.slice(Math.floor(frames.length / 2)).flatMap(x => [x.footL, x.footR]).filter(finite))),
     slide: +both("slideL", "slideR").reduce((a, v) => a + v, 0).toFixed(2),
     jumpPosMax: r2(max(col("jumpPos"))),
     jumpBone: (() => {
@@ -684,6 +736,19 @@ export function ikSelfTest(): SelfTestCase[] {
   const twistedFold = M.qRot(M.qAxisAngle([1, 0, 0], -Math.PI / 2), [0, 0, -1]);
   const twisted = M.bendSide([0, 1.4, 0], [0.3, 1.4, 0], [0.3, 1.1, 0], twistedFold);
   check("upper arm twisted 90°: the fold turns with it", [90, 0], twisted, near(twisted, [90, 0], 1e-6));
+
+  // The grip (ik/vr/hand-grip.ts): a handshake has the fingers along the ray (-z) and the back of the hand outward
+  for (const [side, outward] of [["left", [-1, 0, 0]], ["right", [1, 0, 0]]] as const) {
+    const shake = M.handGrip(side, 0, 0, 0);
+    const fingers = M.qRot(shake, [1, 0, 0]);
+    const back = M.qRot(shake, [0, 1, 0]);
+    check(`${side} hand, handshake: fingers along the ray`, [0, 0, -1], fingers, near(fingers, [0, 0, -1]));
+    check(`${side} hand, handshake: back of the hand outward`, outward, back, near(back, [...outward]));
+    // Raised by 20°: the fingers point that far above the ray, on either hand
+    const raised = M.qRot(M.handGrip(side, 20, 0, 0), [1, 0, 0]);
+    const wantRaised = [0, Math.sin((20 * Math.PI) / 180), -Math.cos((20 * Math.PI) / 180)];
+    check(`${side} hand, raised 20°: the fingers above the ray`, wantRaised, raised, near(raised, wantRaised));
+  }
   return cases;
 }
 

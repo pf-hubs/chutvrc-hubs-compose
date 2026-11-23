@@ -5,6 +5,12 @@ import type { AllowEntry } from "../probes/errors";
 
 export const CONSOLE_ALLOW_LIST: AllowEntry[] = [
   {
+    pattern: /^Removing invalid preference from store: is not allowed to have the additional property "avatarIkV2"/,
+    types: ["error"],
+    reason:
+      "a browser profile signed in before the preference was removed still holds avatarIkV2 (earlier runs of this harness set it); the client's store (storage/store.js) logs this once and deletes it from the profile"
+  },
+  {
     pattern: /^(net::ERR_NO_BUFFER_SPACE (GET|POST|HEAD) |Failed to load resource: net::ERR_NO_BUFFER_SPACE)/,
     types: ["requestfailed", "error"],
     reason:

@@ -354,8 +354,90 @@ export async function exitVr(page: Page, timeout = 15_000) {
   await page.waitForFunction(() => !(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout });
 }
 
-/** Asks the scene for the immersive session again; resolves once it presents */
-export async function enterVr(page: Page, timeout = 15_000) {
+/**
+ * Asks the scene for the immersive session again; resolves once it presents and, unless `capture` is false,
+ * once both triggers have answered the height capture every new session asks for (answerCapturePrompt)
+ */
+export async function enterVr(page: Page, timeout = 15_000, opts: { capture?: boolean } = {}) {
   await page.evaluate(() => (window as any).AFRAME.scenes[0].enterVR());
-  await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout });
+  await page.waitForFunction(() => !!(window as any).AFRAME.scenes[0].renderer.xr.isPresenting, undefined, { timeout, polling: 100 });
+  if (opts.capture !== false) await answerCapturePrompt(page);
+}
+
+// ---------- The height capture (src/avatar/calibration/vr-capture.ts, press-capture.ts) ----------
+
+/**
+ * Where the headset's height capture stands, read from what the page shows: "none" on a build without it (the
+ * previous build), "asking" while its prompt waits for the triggers, "idle" once no capture is under way (the
+ * in-world button that asks for another shows then), "starting" before either (or without a saved height).
+ * The prompt goes on showing the captured height for 1.5 s, so it counts only while the button is hidden.
+ */
+export type CaptureState = "none" | "starting" | "asking" | "idle";
+
+export function captureState(page: Page): Promise<CaptureState> {
+  return page.evaluate(() => {
+    const button = document.querySelector("[body-capture-button]") as any;
+    if (!button) return "none" as const;
+    if (button.object3D.visible) return "idle" as const;
+    // The prompt: the follow-in-fov entity holding a text panel drawn over everything (text-panel.ts)
+    const prompt = [...document.querySelectorAll("[follow-in-fov]")].find((e: any) => e.object3D.children.some((c: any) => c.renderOrder === 10000)) as any;
+    return prompt?.object3D.visible ? ("asking" as const) : ("starting" as const);
+  });
+}
+
+/** Both emulated triggers down (1) or up (0) on the same frame */
+export function setBothTriggers(page: Page, value: 0 | 1): Promise<void> {
+  return page.evaluate(value => {
+    const { left, right } = (window as any).xrDevice.controllers;
+    left.updateButtonValue("trigger", value);
+    right.updateButtonValue("trigger", value);
+  }, value);
+}
+
+/** One press of both triggers together, held for a few frames, as a person presses them */
+export async function pressBothTriggers(page: Page, holdMs = 200) {
+  await setBothTriggers(page, 1);
+  await page.waitForTimeout(holdMs);
+  await setBothTriggers(page, 0);
+}
+
+/**
+ * Looks straight ahead, as the prompt asks, when no timeline is holding the headset and it is tilted more than 15°
+ * (the capture refuses a press beyond 20°): keeps its yaw and position. True when it had to level the headset.
+ */
+function levelHeadset(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const w = window as any;
+    if (w.__e2eMotion?.playing) return false;
+    const q = w.xrDevice.quaternion;
+    // The headset's up axis against the vertical: its y component is cos(tilt)
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+    if (upY >= Math.cos((15 * Math.PI) / 180)) return false;
+    const yaw = Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y));
+    q.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
+    return true;
+  });
+}
+
+/**
+ * Waits for the capture's prompt and presses both triggers until it has taken the height, with the headset where
+ * the test holds it, levelled first if it was left tilted. True when no capture is left waiting; false on a build
+ * without the capture, or when it did not end within `timeout`.
+ */
+export async function answerCapturePrompt(page: Page, timeout = 15_000): Promise<boolean> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const state = await captureState(page);
+    if (state === "none") return false;
+    if (state === "idle") return true;
+    if (state === "asking") {
+      // The height is the median of the last half second of level samples
+      if (await levelHeadset(page)) await page.waitForTimeout(600);
+      await pressBothTriggers(page);
+      await page.waitForTimeout(300);
+    } else {
+      await page.waitForTimeout(100);
+    }
+  }
+  return (await captureState(page)) === "idle";
 }
