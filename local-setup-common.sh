@@ -443,10 +443,86 @@ prompt_and_wait() {
     echo ""
 }
 
+# ── Sign-in helpers (also used by the Windows installer, bin/setup-gui.ps1) ───
+
+# The newest sign-in link in Reticulum's log, or nothing
+latest_sign_in_link() {
+    docker compose logs --tail 5000 reticulum 2>/dev/null \
+        | grep -oE 'https?://[^ "]*auth_token=[^ "]*' | tail -1
+}
+
+account_count() {
+    docker compose exec -T db psql -U postgres -d ret_dev -Atc "select count(*) from ret0.accounts" 2>/dev/null
+}
+
+admin_count() {
+    docker compose exec -T db psql -U postgres -d ret_dev -Atc "select count(*) from ret0.accounts where is_admin" 2>/dev/null
+}
+
+promote_first_account() {
+    docker compose exec -T reticulum sh -c \
+        'echo "Ret.Account |> Ret.Repo.all() |> Enum.at(0) |> Ecto.Changeset.change(is_admin: true) |> Ret.Repo.update!()" | iex -S mix'
+}
+
+print_sign_in_link() {
+    echo ""
+    echo "  $1"
+    echo ""
+    echo "  Open this link in the SAME browser where you entered your email."
+}
+
+# Shows the sign-in link that appeared after $1, the newest link before the user was asked to sign in.
+# When there is none, asks whether the user has tried to sign in yet.
+show_sign_in_link() {
+    local previous="$1" link="" answer="" attempt
+    while true; do
+        info "Fetching sign-in link from Reticulum logs..."
+        link=$(latest_sign_in_link)
+        if [ -n "$link" ] && [ "$link" != "$previous" ]; then
+            success "Sign-in link found:"
+            print_sign_in_link "$link"
+            return 0
+        fi
+
+        warn "No new sign-in link was found."
+        read -rp "Have you already entered your email on the sign-in page and submitted it? [y/N] " answer
+        case "$answer" in
+          [Yy]*)
+            info "Waiting for the link to arrive..."
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                sleep 2
+                link=$(latest_sign_in_link)
+                if [ -n "$link" ] && [ "$link" != "$previous" ]; then
+                    success "Sign-in link found:"
+                    print_sign_in_link "$link"
+                    return 0
+                fi
+            done
+            if [ -n "$link" ]; then
+                warn "No new link arrived. This is the most recent one, from an earlier attempt:"
+                print_sign_in_link "$link"
+                return 0
+            fi
+            warn "Still no link. Check that the page said a link was sent, or look in the log yourself:"
+            echo "    docker compose logs reticulum | grep auth_token"
+            read -rp "Press Enter to check again, or type s to skip: " answer
+            case "$answer" in
+              [Ss]*) return 1 ;;
+            esac
+            ;;
+          *)
+            echo "  Open $base_url, click the sign-in button and enter your email."
+            prompt_and_wait "Enter your email in the browser, then press Enter"
+            ;;
+        esac
+    done
+}
+
 guided_post_setup() {
     local host="${HUBS_HOST:-hubs.local}"
     local base_url="https://$host:4000"
     local browser_loc="in your browser"
+    local previous_link=""
     if [ "$SCENARIO" = "public-domain" ]; then
         browser_loc="in a browser on any internet-connected device"
     fi
@@ -475,25 +551,9 @@ guided_post_setup() {
     echo "     (If it doesn't load, wait a minute and try again)"
     echo "  2. Click the sign-in button"
     echo "  3. Enter an email address that you will use as the admin account for your chutvrc instance"
+    previous_link=$(latest_sign_in_link)
     prompt_and_wait "Enter your email in the browser, then press Enter"
-
-    info "Fetching sign-in link from Reticulum logs..."
-    local magic_link=""
-    magic_link=$(docker compose logs reticulum 2>/dev/null | grep -oE 'https?://[^ ]*auth_token=[^ ]*' | tail -1 | sed 's/[",]$//')
-
-    if [ -n "$magic_link" ]; then
-        echo ""
-        success "Sign-in link found:"
-        echo ""
-        echo "  $magic_link"
-        echo ""
-        echo "  Open this link in the SAME browser where you entered your email."
-    else
-        warn "Could not find sign-in link automatically."
-        echo "  Try running this in another terminal:"
-        echo "    docker compose logs reticulum | grep auth_token"
-        echo "  Then open the link in the SAME browser."
-    fi
+    show_sign_in_link "$previous_link"
     prompt_and_wait "Open the sign-in link and complete sign-in, then press Enter"
 
     # Step 3: Promote to admin (automated!)
@@ -502,8 +562,7 @@ guided_post_setup() {
     echo "------------------------------------------------------------"
     echo ""
     info "Running admin promotion command..."
-    if docker compose exec -T reticulum sh -c \
-        'echo "Ret.Account |> Ret.Repo.all() |> Enum.at(0) |> Ecto.Changeset.change(is_admin: true) |> Ret.Repo.update!()" | iex -S mix' 2>&1; then
+    if promote_first_account 2>&1; then
         success "Admin promotion command executed."
     else
         warn "Automatic promotion may have failed. You can do it manually:"
@@ -514,25 +573,9 @@ guided_post_setup() {
     echo ""
     echo "  Please sign out in the browser, then sign in again to activate admin."
     echo "  (Since SMTP is not configured yet, we will fetch the sign-in link from logs.)"
+    previous_link=$(latest_sign_in_link)
     prompt_and_wait "Sign out and enter your email in the browser, then press Enter"
-
-    info "Fetching sign-in link from Reticulum logs..."
-    local magic_link2=""
-    magic_link2=$(docker compose logs reticulum 2>/dev/null | grep -oE 'https?://[^ ]*auth_token=[^ ]*' | tail -1 | sed 's/[",]$//')
-
-    if [ -n "$magic_link2" ]; then
-        echo ""
-        success "Sign-in link found:"
-        echo ""
-        echo "  $magic_link2"
-        echo ""
-        echo "  Open this link in the SAME browser where you entered your email."
-    else
-        warn "Could not find sign-in link automatically."
-        echo "  Try running this in another terminal:"
-        echo "    docker compose logs reticulum | grep auth_token"
-        echo "  Then open the link in the SAME browser."
-    fi
+    show_sign_in_link "$previous_link"
     prompt_and_wait "Open the sign-in link and complete sign-in, then press Enter to continue"
 
     # Step 4: Configure admin settings (manual — browser)
