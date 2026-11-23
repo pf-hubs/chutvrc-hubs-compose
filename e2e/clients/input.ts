@@ -90,7 +90,7 @@ export async function faceTowards(page: Page, target: FaceTarget, snapDegrees = 
   return angle === null ? null : +angle.toFixed(1);
 }
 
-/** A toolbar button by its label ("Voice", "Recording", "Place", "Leave", ...) */
+/** A toolbar button by its label ("Voice", "Features", "Place", "Leave", ...) */
 export function toolbarButton(page: Page, label: string): Locator {
   return page.getByRole("button", { name: label, exact: true });
 }
@@ -109,15 +109,64 @@ export async function micButtonState(page: Page): Promise<"on" | "muted" | "unkn
   });
 }
 
-/** Clicks the toolbar's Recording button to start recording the room's data channel messages */
-export async function startRecording(page: Page) {
-  await toolbarButton(page, "Recording").click();
+/** Whether a button with exactly this label is on the page and has a size */
+function buttonShown(page: Page, label: string): Promise<boolean> {
+  return page.evaluate(label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0), label);
 }
 
-/** Clicks the Recording button again: the client stops and downloads the recording as a file */
+/** What the Features popover can hold, each behind its admin setting; none of them is on the toolbar itself */
+export const FEATURE_ITEMS = ["Recording", "Broadcast", "Nimpro"] as const;
+
+/** The items the open Features popover shows; empty while it is closed */
+export function featureItemsShown(page: Page): Promise<string[]> {
+  return page.evaluate(
+    labels => labels.filter(label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0)),
+    [...FEATURE_ITEMS] as string[]
+  );
+}
+
+/** Opens the toolbar's Features popover unless it is open already (its button would close it again) */
+export async function openFeatures(page: Page) {
+  if ((await featureItemsShown(page)).length) return;
+  await toolbarButton(page, "Features").click();
+  // Polled on a timer: a headset in VR holds the window's frame callbacks (clients/motion.ts)
+  await page.waitForFunction(
+    labels => [...document.querySelectorAll("button")].some(b => labels.includes(b.textContent?.trim() ?? "") && b.getBoundingClientRect().width > 0),
+    [...FEATURE_ITEMS] as string[],
+    { timeout: 10_000, polling: 100 }
+  );
+}
+
+/**
+ * Features > Recording until the data channel bus is in the wanted state, then closes the popover so it does not
+ * cover the view. The item has no sub-menu; a click that had no effect (the popover's content may be mounted
+ * afresh while it opens) is repeated, up to three times. A build without the bus cannot tell, so it gets one click.
+ */
+async function clickRecording(page: Page, wanted: boolean) {
+  const recording = () => page.evaluate(() => (window as any).APP?.sfu?.bus?.isRecording as boolean | undefined);
+  let state: boolean | undefined;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await openFeatures(page);
+    await clickPopoverItem(page, "Recording");
+    await page.waitForTimeout(300);
+    state = await recording();
+    if (state === undefined || state === wanted) break;
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  if (state !== undefined && state !== wanted) throw new Error(`Features > Recording did not ${wanted ? "start" : "stop"} the recording after three clicks`);
+}
+
+/** Features > Recording: starts recording the room's data channel messages */
+export async function startRecording(page: Page) {
+  await clickRecording(page, true);
+}
+
+/** Features > Recording again: the client stops and downloads the recording as a file */
 export async function stopRecording(page: Page, timeout = 15_000): Promise<Download> {
   const download = page.waitForEvent("download", { timeout });
-  await toolbarButton(page, "Recording").click();
+  // When the click below throws, nobody is left to await the download
+  download.catch(() => {});
+  await clickRecording(page, false);
   return download;
 }
 
@@ -270,7 +319,7 @@ export async function clickFound(page: Page, finder: string, arg?: unknown, what
   await page.mouse.click(box.x, box.y, { delay: 80 });
 }
 
-/** Opens a toolbar popover (Share, Place, More, Chutvrc, ...) unless it is open, and clicks one of its items */
+/** Opens a toolbar popover (Share, Place, More, ...) unless it is open, and clicks one of its items */
 export async function choosePopoverItem(page: Page, toolbarLabel: string, itemLabel: string) {
   // A popover may still be open from the last choice; its toolbar button would close it again
   const open = await page.evaluate(
@@ -498,29 +547,27 @@ export function pdfPageOf(page: Page, src: string): Promise<number | null> {
 export const FIND_MEDIA_CODE = FIND_MEDIA;
 
 /**
- * An action of the Chutvrc popover: its menu ("Nimpro" or "Broadcast") shows the actions ("Init Nimpro",
+ * An action of the Features popover: its menu ("Nimpro" or "Broadcast") shows the actions ("Init Nimpro",
  * "New Round", "Result", "Start Speaking", ...). The popover remembers the open menu, and clicking the
  * menu's button again closes it, so this opens only what is not open yet. With `done`, a click that had no
  * effect (the popover's buttons are mounted afresh while it opens) is repeated, up to three times.
  */
-export async function chutvrcAction(page: Page, menu: "Nimpro" | "Broadcast", action: string, done?: () => Promise<boolean>) {
+export async function featuresAction(page: Page, menu: "Nimpro" | "Broadcast", action: string, done?: () => Promise<boolean>) {
   for (let attempt = 1; attempt <= 3; attempt++) {
-    await chutvrcClick(page, menu, action);
+    await featuresClick(page, menu, action);
     if (!done) return;
     await page.waitForTimeout(1000);
     if (await done()) return;
   }
-  throw new Error(`Chutvrc > ${menu} > ${action} had no effect after three clicks`);
+  throw new Error(`Features > ${menu} > ${action} had no effect after three clicks`);
 }
 
-async function chutvrcClick(page: Page, menu: "Nimpro" | "Broadcast", action: string) {
-  const visible = (label: string) =>
-    page.evaluate(label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0), label);
-  if (!(await visible(action)) && !(await visible(menu))) {
-    await toolbarButton(page, "Chutvrc").click();
+async function featuresClick(page: Page, menu: "Nimpro" | "Broadcast", action: string) {
+  if (!(await buttonShown(page, action)) && !(await buttonShown(page, menu))) {
+    await openFeatures(page);
     await page.waitForTimeout(300);
   }
-  if (!(await visible(action))) {
+  if (!(await buttonShown(page, action))) {
     await clickPopoverItem(page, menu);
     await page.waitForTimeout(300);
   }

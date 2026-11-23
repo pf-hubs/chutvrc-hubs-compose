@@ -81,9 +81,9 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
   // Seats 1, 3 and 5: neighbouring seats' icons overlap on the screen from where members stand
   const seatOf = new Map(members.map((m, i) => [m, 2 * i + 1]));
 
-  await evidence.check("The admin starts N-impro from the menu (Chutvrc > Nimpro > Init Nimpro)", "F9", async () => {
+  await evidence.check("The admin starts N-impro from the menu (Features > Nimpro > Init Nimpro)", "F9", async () => {
     const initLogged = () => Promise.resolve(admin.log.some(e => /Nimpro initialized as admin/.test(e.text)));
-    await input.chutvrcAction(admin.page, "Nimpro", "Init Nimpro", initLogged).catch(() => {});
+    await input.featuresAction(admin.page, "Nimpro", "Init Nimpro", initLogged).catch(() => {});
     await admin.page.waitForTimeout(1000);
     await evidence.screenshot(admin, "nimpro-init");
     const ok = await initLogged();
@@ -118,7 +118,7 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
   await admin.page.waitForTimeout(1000);
   const pagesBefore = await Promise.all(all.map(c => input.pdfPageOf(c.page, QUESTION_PDF_URL)));
   await evidence.check("The admin starts a round (New Round): the question slide pages on every client", "F9 F3", async () => {
-    await input.chutvrcAction(admin.page, "Nimpro", "New Round", async () => admin.log.some(e => /New round started|Question slide pager not found/.test(e.text))).catch(() => {});
+    await input.featuresAction(admin.page, "Nimpro", "New Round", async () => admin.log.some(e => /New round started|Question slide pager not found/.test(e.text))).catch(() => {});
     const turned = await waitUntil(async () => {
       const pages = await Promise.all(all.map(c => input.pdfPageOf(c.page, QUESTION_PDF_URL)));
       return pages.every(p => p !== null && p === (pagesBefore[0] ?? 0) + 1) ? pages : null;
@@ -146,7 +146,7 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
   });
 
   await evidence.check("The admin shows the result (Result): points go out", "F9", async () => {
-    await input.chutvrcAction(admin.page, "Nimpro", "Result", async () => admin.log.some(e => /Point in this round|Even number of participants/.test(e.text))).catch(() => {});
+    await input.featuresAction(admin.page, "Nimpro", "Result", async () => admin.log.some(e => /Point in this round|Even number of participants/.test(e.text))).catch(() => {});
     await admin.page.waitForTimeout(2500);
     await evidence.screenshot(admin, "nimpro-result");
     const got = members.map(m => m.log.filter(e => /got \d+ points in this round/.test(e.text)).map(e => e.text));
@@ -175,7 +175,7 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
 
   if (!logged) {
     evidence.notApplicable("Every #nimpro message arrives (packet logs)", "F9", "the packet log needs the data channel bus (APP.sfu.bus)");
-    await input.chutvrcAction(admin.page, "Nimpro", "Quit Nimpro").catch(() => {});
+    await input.featuresAction(admin.page, "Nimpro", "Quit Nimpro").catch(() => {});
     await admin.page.keyboard.press("Escape").catch(() => {});
     return;
   }
@@ -198,7 +198,7 @@ async function nimproRound(evidence: Evidence, admin: Client, members: Client[])
     return { ok, summary: `admin sent ${adminSent.join(", ")}; ${rows.join("; ")}`, data: { adminSent, rows } };
   });
 
-  await input.chutvrcAction(admin.page, "Nimpro", "Quit Nimpro").catch(() => {});
+  await input.featuresAction(admin.page, "Nimpro", "Quit Nimpro").catch(() => {});
   await admin.page.keyboard.press("Escape").catch(() => {});
 }
 
@@ -258,7 +258,7 @@ async function laserPointer(evidence: Evidence, a: Client, others: Client[]) {
     const channelBefore = logged ? [] : await Promise.all(others.map(laserChannelMessages));
     if (logged) await Promise.all(others.map(c => startPacketLog(c.page)));
     const marks = logMarks([a]);
-    await input.chutvrcAction(a.page, "Broadcast", "Start Speaking");
+    await input.featuresAction(a.page, "Broadcast", "Start Speaking");
     await a.page.keyboard.press("Escape").catch(() => {});
     await a.page.waitForTimeout(3000);
     const speaking = await a.page.evaluate(() => !!(window as any).APP.publicSpeakingSfu);
@@ -271,7 +271,7 @@ async function laserPointer(evidence: Evidence, a: Client, others: Client[]) {
     await evidence.screenshot(a, "pointing");
     const logs = logged ? await Promise.all(others.map(c => takePacketLog(c.page))) : [];
     const channelAfter = logged ? [] : await Promise.all(others.map(laserChannelMessages));
-    await input.chutvrcAction(a.page, "Broadcast", "Stop Speaking").catch(() => {});
+    await input.featuresAction(a.page, "Broadcast", "Stop Speaking").catch(() => {});
     await a.page.keyboard.press("Escape").catch(() => {});
     if (!logged && channelAfter.every(n => n === null)) {
       return {

@@ -4,11 +4,12 @@
 // (src/systems/public-speaking-system.js). Every client of the listening room should hear and see the
 // stand-in.
 //
-// T3.1, T3.2, T3.4 and T3.5 run on Dialog; T3.3 is T3.1 on LiveKit (a probe: reticulum issues LiveKit
-// tokens only for the hub's own room and the session's own identity, so delivery is not expected); T3.6
-// switches the speaker's room to LiveKit while speaking and runs in a LiveKit block (it needs a LiveKit
-// server to switch to). No workaround for the avatar announcement is used here: the stand-in's presence is
-// a subject of T3.1.
+// T3.1, T3.2, T3.4 and T3.5 run on Dialog; T3.3 is T3.1 on LiveKit, where reticulum issues a separate token
+// per broadcast session (public_speaking_sfu_token, roles speak, listen and relay), so the speaker keeps its
+// connection to its own room and the listening room receives the stand-in. T3.6 switches the speaker's room to
+// LiveKit while speaking, which ends the broadcast (PublicSpeakingSystem.closeAll), and runs in a LiveKit block
+// (it needs a LiveKit server to switch to). No workaround for the avatar announcement is used here: the
+// stand-in's presence is a subject of T3.1.
 import { test } from "./harness";
 import type { Evidence } from "../report/evidence";
 import { room, SFU_ID, type MediaServer, type RoomName } from "../lib/fixtures";
@@ -53,15 +54,13 @@ const sessionsText = (c: Client, s: SpeakingSessions) =>
   `${c.name}: speaking ${s.speaking ? `${s.speaking.clientId} sfuId ${s.speaking.sfuId} connected ${s.speaking.isConnected}` : "none"}, mirror ${s.mirror ? `sfuId ${s.mirror.sfuId} connected ${s.mirror.isConnected}` : "none"}, agents ${s.agents.map(a => `${a.clientId} connected ${a.isConnected}`).join(" ") || "none"}`;
 
 async function startSpeaking(a: Client) {
-  await input.chutvrcAction(a.page, "Broadcast", "Start Speaking", () => a.page.evaluate(() => !!(window as any).APP.publicSpeakingSfu));
+  await input.featuresAction(a.page, "Broadcast", "Start Speaking", () => a.page.evaluate(() => !!(window as any).APP.publicSpeakingSfu));
   await a.page.keyboard.press("Escape").catch(() => {});
 }
 
 /**
- * Broadcast > Stop Speaking. The menu keeps whether it is speaking in its own state, which starts as "not
- * speaking" each time the menu is shown again (PublicSpeakingMenu.js), so after the popover was closed it
- * offers "Start Speaking" while the speaking session runs. A user then clicks it (the session ignores the
- * second start, the label turns) and then "Stop Speaking"; this does the same and returns what the menu showed.
+ * Broadcast > Stop Speaking. The menu reads the sessions (usePublicSpeakingState), so it offers Stop Speaking for as
+ * long as the speaking session runs, also after the popover was closed and opened again. Returns what it showed.
  */
 async function stopSpeaking(a: Client): Promise<{ shown: string; clicks: number }> {
   const speaking = () => a.page.evaluate(() => !!(window as any).APP.publicSpeakingSfu);
@@ -70,14 +69,10 @@ async function stopSpeaking(a: Client): Promise<{ shown: string; clicks: number 
       const labels = [...document.querySelectorAll("button")].filter(b => b.getBoundingClientRect().width > 0).map(b => b.textContent?.trim());
       return labels.includes("Stop Speaking") ? "Stop Speaking" : labels.includes("Start Speaking") ? "Start Speaking" : "neither";
     });
-  // Opens Chutvrc > Broadcast without clicking an action (clicking Broadcast again would close the menu)
-  const visible = (label: string) =>
-    a.page.evaluate(label => [...document.querySelectorAll("button")].some(b => b.textContent?.trim() === label && b.getBoundingClientRect().width > 0), label);
+  // Opens Features > Broadcast without clicking an action (clicking Broadcast again would close the menu)
   if ((await shownNow()) === "neither") {
-    if (!(await visible("Broadcast"))) {
-      await input.toolbarButton(a.page, "Chutvrc").click();
-      await a.page.waitForTimeout(300);
-    }
+    await input.openFeatures(a.page);
+    await a.page.waitForTimeout(300);
     if ((await shownNow()) === "neither") {
       await input.clickPopoverItem(a.page, "Broadcast");
       await a.page.waitForTimeout(300);
@@ -85,31 +80,32 @@ async function stopSpeaking(a: Client): Promise<{ shown: string; clicks: number 
   }
   const shown = await shownNow();
   let clicks = 0;
-  if (shown === "Start Speaking" && (await speaking())) {
-    await input.clickPopoverItem(a.page, "Start Speaking");
+  if (shown === "Stop Speaking") {
+    await input.clickPopoverItem(a.page, "Stop Speaking");
     clicks++;
-    await a.page.waitForTimeout(500);
+    await waitUntil(async () => !(await speaking()), 5000);
   }
-  await input.clickPopoverItem(a.page, "Stop Speaking");
-  clicks++;
-  await waitUntil(async () => !(await speaking()), 5000);
   await a.page.keyboard.press("Escape").catch(() => {});
   return { shown, clicks };
 }
 
 async function startListening(b: Client) {
-  await input.chutvrcAction(b.page, "Broadcast", "Start Listening", () => b.page.evaluate(() => !!(window as any).APP.publicSpeakersMirrorSfu));
+  await input.featuresAction(b.page, "Broadcast", "Start Listening", () => b.page.evaluate(() => !!(window as any).APP.publicSpeakersMirrorSfu));
   await b.page.keyboard.press("Escape").catch(() => {});
 }
 
-/** What reticulum answers a client's refresh_sfu_token (what the listener's agent session waits for) */
-function sfuTokenReply(c: Client): Promise<string> {
-  return c.page.evaluate(() =>
-    (window as any).APP.hubChannel.fetchSfuToken().then(
-      (r: any) => `ok (a token for room ${r.roomId ?? "?"})`,
+/**
+ * What reticulum answers for the relay's token (public_speaking_sfu_token, role "relay"), which the listener's
+ * relay session waits for on LiveKit; a Dialog room is joined with the room's permission token. The token itself
+ * stays in the page.
+ */
+function relayTokenReply(c: Client, server: MediaServer, psId: string): Promise<string> {
+  if (server !== "livekit") return Promise.resolve("no token of its own (a Dialog relay joins with the room's permission token)");
+  return c.page.evaluate(speaker =>
+    (window as any).APP.hubChannel.fetchPublicSpeakingToken("relay", speaker).then(
+      (token: unknown) => (typeof token === "string" && token ? "ok (a token was issued)" : "ok, but no token in the answer"),
       (e: any) => `error ${e instanceof Error ? e.message : JSON.stringify(e)}`
-    )
-  );
+    ), psId);
 }
 
 /** What a client in a listening room has of the stand-in: its pose, its model drawn, the speaker's pilot */
@@ -201,11 +197,9 @@ async function speakAndListen(evidence: Evidence, server: MediaServer) {
     await startSpeaking(a);
     await a.page.waitForTimeout(3000);
     await startListening(b);
-    const arrival = await waitForStandIn([b, c], psId, server === "livekit" ? 20_000 : 30_000);
+    const arrival = await waitForStandIn([b, c], psId);
     const sessions = { A: await speakingSessions(a), B: await speakingSessions(b) };
-    // The listener's agent session needs an SFU token from reticulum before it connects into Y
-    const tokenReply = await sfuTokenReply(b);
-    evidence.note(`the listener's hub channel answers refresh_sfu_token with ${tokenReply} (initPublicSpeakerAgent awaits APP.hubChannel.getSfuTokenOrFetch() before it connects the agent into the listening room)`);
+    evidence.note(`the relay's token for the listening room: ${await relayTokenReply(b, server, psId)}`);
     evidence.saveJson("sessions.json", sessions, "the public speaking sessions of the speaker and the listener");
     await input.faceTowards(c.page, { clientId: psId });
     await evidence.screenshot(c, "C-sees-stand-in");
@@ -243,32 +237,18 @@ async function speakAndListen(evidence: Evidence, server: MediaServer) {
     const after = await mainSessionState(a, server);
     evidence.saveJson("stand-in.json", { arrival, atB, atC, afterStop, removedMs: removed.timedOut ? null : removed.ms }, "the stand-in in the listening room: arrival, pose, model, pilot, removal");
 
-    const arrived = atB.pose && atC.pose && heard(atB.pilot) && heard(atC.pilot);
     if (server === "livekit") {
-      await evidence.check("A's main session stays connected and keeps sending while it speaks (required)", "F2 A2", async () => ({
-        ok: before.ok && during.ok && after.ok,
-        summary: `before speaking: ${mainText(before)}; while speaking: ${mainText(during)}; after: ${mainText(after)}`,
-        data: { before, during, after }
-      }));
-      await evidence.check("What the listening room receives (recorded; delivery is not expected)", "F2 A2", async () => ({
-        ok: true,
-        summary:
-          `${standInText(b, atB)}; ${standInText(c, atC)}; stand-in pose first held after ${arrival.map(v => (v === null ? "never" : `${v} ms`)).join(" / ")} (B / C); ` +
-          `${sessionsText(a, sessions.A)}; ${sessionsText(b, sessions.B)}`,
-        data: { atB, atC, sessions, arrival }
-      }));
       const errors = [a, b, c].flatMap(cl => cl.log.filter(e => (e.type === "error" || e.type === "pageerror") && /livekit|token|public_speaking|PS-|PC manager|negotiation/i.test(e.text)).slice(0, 3).map(e => `${cl.name}: ${e.text.split("\n")[0].slice(0, 200)}`));
-      evidence.note(`errors about the speaking sessions: ${errors.join(" | ") || "none"}`);
+      evidence.note(`errors about the speaking sessions: ${errors.join(" | ") || "none"}; ${sessionsText(a, sessions.A)}; ${sessionsText(b, sessions.B)}`);
       // LiveKit names the participant in its log lines: the speaker's identity under more than one participant id
-      // means a second connection joined the speaker's own room under the speaker's identity
+      // means a second connection joined the speaker's own room under the speaker's identity and threw it out
       const participants = [...new Set(a.log.flatMap(e => [...e.text.matchAll(new RegExp(`participant: ${ida}, pID: (PA_\\w+)`, "g"))].map(m => m[1])))];
       const unableShown = await a.page.evaluate(() => document.body.innerText.includes("Unable to connect to this room")).catch(() => null);
-      evidence.note(`LiveKit participant ids of the speaker's identity ${ida} in its log: ${participants.join(", ") || "none"}; the speaker's page shows "Unable to connect to this room": ${unableShown}`);
-      if (!arrived && before.ok && during.ok && after.ok) {
-        test.info().annotations.push({ type: "known limitation", description: "LiveKit: the listening room receives nothing from the speaker (reticulum issues LiveKit tokens only for the hub's own room and identity)" });
-        evidence.note("status known limitation: nothing of the speaker arrived in the listening room; the speaker's main session was unaffected");
-      }
-      return { a, b, c };
+      await evidence.check("LiveKit: the broadcast's sessions leave the speaker's own connection alone", "F2 A2", async () => ({
+        ok: participants.length <= 1 && unableShown === false,
+        summary: `LiveKit participant ids of the speaker's identity ${ida} in its log: ${participants.join(", ") || "none"} (judged: at most one); the speaker's page shows "Unable to connect to this room": ${unableShown}`,
+        data: { participants, unableShown }
+      }));
     }
 
     await evidence.check("A stand-in for A appears in Y, with A's model", "F2 B10", async () => ({
@@ -316,13 +296,14 @@ async function speakAndListen(evidence: Evidence, server: MediaServer) {
       summary:
         stopMenu.shown === "Stop Speaking"
           ? "Stop Speaking shown; one click stopped"
-          : `the menu, shown again after it was closed, offered "${stopMenu.shown}" while the speaking session ran; ${stopMenu.clicks} clicks stopped it (PublicSpeakingMenu.js keeps publicSpeakerActive in the menu's own state, which starts false each time the menu mounts; the same on develop)`,
+          : `the menu, shown again after it was closed, offered "${stopMenu.shown}" while the speaking session ran (PublicSpeakingMenu.js reads the sessions through usePublicSpeakingState)`,
       data: stopMenu
     }));
-    await evidence.check("A's own session is unaffected", "F2 A1f", async () => ({
-      ok: before.ok && during.ok && after.ok && exceptionsSince([a], marks).length === 0,
-      summary: `before speaking: ${mainText(before)}; while speaking: ${mainText(during)}; after: ${mainText(after)}; exceptions on A ${exceptionsSince([a], marks).length}`,
-      data: { before, during, after }
+    const exceptions = exceptionsSince([a], marks);
+    await evidence.check("A's own session is unaffected", server === "livekit" ? "F2 A2" : "F2 A1f", async () => ({
+      ok: before.ok && during.ok && after.ok && exceptions.length === 0,
+      summary: `before speaking: ${mainText(before)}; while speaking: ${mainText(during)}; after: ${mainText(after)}; exceptions on A ${exceptions.length}`,
+      data: { before, during, after, exceptions }
     }));
     return { a, b, c };
   } finally {
@@ -557,6 +538,12 @@ async function switchWhileSpeaking(evidence: Evidence) {
     const before = { main: await readSession(a.page), speaking: await speakingSessions(a), atC: await standIn(c, psId, a.pilotHz) };
     await input.setRoomMediaServer(a.page, "LiveKit");
     const moved = await waitUntil(async () => (await readSession(a.page)).sfuId === SFU_ID.livekit && (await readSession(a.page)).isConnected, 30_000);
+    // A broadcast belongs to the server it started on: the switch ends it (switch-sfu.ts, PublicSpeakingSystem.closeAll)
+    const ended = await waitUntil(async () => !(await speakingSessions(a)).speaking, 15_000);
+    const gone = await waitUntil(async () => {
+      const peers = await readPeers(c.page);
+      return !peers.poses.includes(psId) && !peers.models.includes(psId);
+    }, 15_000);
     await a.page.waitForTimeout(3000);
     const onLiveKit = { main: await readSession(a.page), speaking: await speakingSessions(a), atC: await standIn(c, psId, a.pilotHz) };
     await evidence.screenshot(c, "C-after-switch");
@@ -564,15 +551,23 @@ async function switchWhileSpeaking(evidence: Evidence) {
     const back = await waitUntil(async () => (await readSession(a.page)).sfuId === SFU_ID.dialog && (await readSession(a.page)).isConnected, 30_000);
     await a.page.waitForTimeout(3000);
     const backOnDialog = { main: await readSession(a.page), speaking: await speakingSessions(a), atC: await standIn(c, psId, a.pilotHz) };
-    evidence.saveJson("switch.json", { before, onLiveKit, backOnDialog, movedMs: moved.ms, backMs: back.ms }, "the speaker's sessions and the stand-in in Y around the switch");
+    evidence.saveJson("switch.json", { before, onLiveKit, backOnDialog, movedMs: moved.ms, backMs: back.ms, endedMs: ended.timedOut ? null : ended.ms, standInGoneMs: gone.timedOut ? null : gone.ms }, "the speaker's sessions and the stand-in in Y around the switch");
     const row = (name: string, s: typeof before) =>
-      `${name}: main sfuId ${s.main.sfuId} connected ${s.main.isConnected} microphone ${s.main.micTrack}; speaking session sfuId ${s.speaking.speaking?.sfuId ?? "none"} connected ${s.speaking.speaking?.isConnected ?? false}; at C ${standInText(c, s.atC)}`;
-    await evidence.check("Recorded: the speaker's sessions and the stand-in when the speaker's room switches to LiveKit and back", "F2 L1", async () => ({
+      `${name}: main sfuId ${s.main.sfuId} connected ${s.main.isConnected} microphone ${s.main.micTrack}; speaking session ${s.speaking.speaking ? `sfuId ${s.speaking.speaking.sfuId} connected ${s.speaking.speaking.isConnected}` : "none"}; at C ${standInText(c, s.atC)}`;
+    await evidence.check("The speaker's room moves to LiveKit and back with its microphone", "F2 L1", async () => ({
       ok: !moved.timedOut && !back.timedOut && onLiveKit.main.micTrack === "live" && backOnDialog.main.micTrack === "live",
       summary: `${row("before", before)}; ${row("on LiveKit", onLiveKit)}; ${row("back on Dialog", backOnDialog)}; main session moved in ${moved.timedOut ? "more than 30000" : moved.ms} ms and back in ${back.timedOut ? "more than 30000" : back.ms} ms`,
       data: { before, onLiveKit, backOnDialog }
     }));
-    await stopSpeaking(a).catch(() => {});
+    await evidence.check("The switch ends the broadcast: no speaking session is left and the stand-in leaves Y", "F2 L1", async () => ({
+      ok: !before.speaking.speaking || !before.atC.pose ? ("not applicable" as const) : !ended.timedOut && !gone.timedOut && !onLiveKit.speaking.speaking && !backOnDialog.speaking.speaking && !onLiveKit.atC.pose && !backOnDialog.atC.pose,
+      summary:
+        !before.speaking.speaking || !before.atC.pose
+          ? `cannot be judged: before the switch A's speaking session ${before.speaking.speaking ? "ran" : "did not run"} and C ${before.atC.pose ? "held" : "did not hold"} the stand-in`
+          : `speaking session gone ${ended.timedOut ? "not within 15 s" : `after ${ended.ms} ms`}; the stand-in gone from C ${gone.timedOut ? "not within 15 s" : `after ${gone.ms} ms`}; on LiveKit: speaking ${onLiveKit.speaking.speaking ? "still" : "none"}, C holds its pose ${onLiveKit.atC.pose}; back on Dialog: speaking ${backOnDialog.speaking.speaking ? "still" : "none"}, C holds its pose ${backOnDialog.atC.pose}`,
+      data: { ended, gone }
+    }));
+    if ((await speakingSessions(a)).speaking) await stopSpeaking(a).catch(() => {});
     await closingChecks(evidence, [a, b, c]);
   } finally {
     restore();
@@ -600,7 +595,7 @@ test.describe("T3 public speaking", () => {
     }
   );
   test(
-    `T3.3 public speaking on ${blockTitle("livekit")} (probe)`,
+    `T3.3 a speaker in X heard and seen in Y, on ${blockTitle("livekit")}`,
     { annotation: [{ type: "id", description: `t3.3-${blockId("livekit")}` }, { type: "covers", description: "F2 A2" }] },
     async ({ evidence }) => {
       runsOn("livekit");
@@ -625,12 +620,11 @@ test.describe("T3 public speaking", () => {
     }
   );
   test(
-    `T3.6 the speaker's room switches media server while speaking, Dialog to ${blockTitle("livekit")} (known limitation)`,
+    `T3.6 the speaker's room switches media server while speaking: the broadcast ends, Dialog to ${blockTitle("livekit")}`,
     {
       annotation: [
         { type: "id", description: `t3.6-${blockId("livekit")}` },
-        { type: "covers", description: "F2 L1" },
-        { type: "known limitation", description: "the speaking sessions stay on the server they started on (chutvrc_sfu-avatar-refactor_changes 2.7)" }
+        { type: "covers", description: "F2 L1" }
       ]
     },
     async ({ evidence }) => {

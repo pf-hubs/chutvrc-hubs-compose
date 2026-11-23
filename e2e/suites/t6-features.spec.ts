@@ -1,4 +1,4 @@
-// T6 existing features and the upstream intake (plan 4, T6.1 to T6.10), on Dialog in the Dialog block and on
+// T6 existing features and the upstream intake (plan 4, T6.1 to T6.10, and T6.11 for the Features menu), on Dialog in the Dialog block and on
 // LiveKit in a LiveKit block where the feature touches the media server. T6.8 (no request to a reticulum.io
 // host) and T6.10 (console errors) are scans of the whole run: every test's closing checks judge its own
 // clients, and report/run-scans.ts reads every client of every test after the run (t6.8-whole-run,
@@ -11,8 +11,8 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { test } from "./harness";
 import type { Evidence } from "../report/evidence";
-import { ASSETS_URL, BASE_URL } from "../lib/env";
-import { compose, restartReticulum, sql, sqlText } from "../lib/stack";
+import { ASSETS_URL, BASE_URL, sleep } from "../lib/env";
+import { ALL_FEATURES_ON, APP_CONFIG_CACHE_MS, compose, readFeatureSettings, restartReticulum, restoreFeatureSettings, setFeatureSettings, sql, sqlText, type FeatureSwitches } from "../lib/stack";
 import { readFixtures, room, type MediaServer } from "../lib/fixtures";
 import type { Client } from "../clients/launch";
 import * as input from "../clients/input";
@@ -647,6 +647,85 @@ async function recordingFile(evidence: Evidence, server: MediaServer) {
   await closingChecks(evidence, [a, b], ALLOW);
 }
 
+// ---------- T6.11 ----------
+
+/** The items of the Features menu a client should get: Recording and Nimpro for everyone, Broadcast for the room's owner */
+function expectedFeatureItems(on: FeatureSwitches, isOwner: boolean): string[] {
+  return [on.recording && "Recording", on.broadcast && isOwner && "Broadcast", on.nimpro && "Nimpro"].filter((x): x is string => !!x);
+}
+
+/** What a client that has entered shows: the toolbar's Features button, the items in its popover, the settings the page was served and its role */
+async function featuresMenuSeen(c: Client) {
+  await input.toolbarButton(c.page, "Voice").waitFor({ state: "visible", timeout: 30_000 });
+  // The menu asks the room's presence for the role; polled on a timer, as the page's frames may be held
+  await c.page
+    .waitForFunction(() => !!(window as any).APP.hubChannel?.presence?.state?.[(window as any).NAF.clientId]?.metas?.[0]?.roles, undefined, { timeout: 15_000, polling: 200 })
+    .catch(() => {});
+  await c.page.waitForTimeout(1000);
+  const page = await c.page.evaluate(() => {
+    const f = (window as any).APP_CONFIG?.features ?? {};
+    const roles = (window as any).APP.hubChannel?.presence?.state?.[(window as any).NAF.clientId]?.metas?.[0]?.roles;
+    return { settings: { recording: !!f.enable_recording, broadcast: !!f.enable_public_speaking, nimpro: !!f.enable_nimpro }, isOwner: !!roles?.owner };
+  });
+  const button = await input.toolbarButton(c.page, "Features").isVisible().catch(() => false);
+  let items: string[] = [];
+  if (button) {
+    await input.openFeatures(c.page);
+    await c.page.waitForTimeout(300);
+    items = await input.featureItemsShown(c.page);
+  }
+  return { ...page, button, items };
+}
+
+async function featuresMenu(evidence: Evidence) {
+  test.setTimeout(20 * 60_000);
+  const hub = room(mainRoom("dialog"));
+  const [owner, member] = await startClients(evidence, [
+    { identity: "admin", account: "admin", slot: "a", name: "A-owner" },
+    { identity: "member1", account: "member1", slot: "b", name: "B-member" }
+  ]);
+  evidence.note(`room ${hub.hubId} (${hub.mediaServer}); A-owner is the room's owner, B-member is not. The settings are written to ret0.app_configs; each case waits ${APP_CONFIG_CACHE_MS / 1000} s for reticulum's cache and loads the room again, since a page reads them once, as it is served`);
+  const cases: { name: string; tag: string; on: FeatureSwitches }[] = [
+    { name: "all three off", tag: "all-off", on: { recording: false, broadcast: false, nimpro: false } },
+    { name: "all three on", tag: "all-on", on: ALL_FEATURES_ON },
+    { name: "Recording off", tag: "recording-off", on: { ...ALL_FEATURES_ON, recording: false } },
+    { name: "Broadcast off", tag: "broadcast-off", on: { ...ALL_FEATURES_ON, broadcast: false } },
+    { name: "Nimpro off", tag: "nimpro-off", on: { ...ALL_FEATURES_ON, nimpro: false } }
+  ];
+  const stored = readFeatureSettings();
+  try {
+    for (const k of cases) {
+      setFeatureSettings(k.on);
+      await sleep(APP_CONFIG_CACHE_MS);
+      await Promise.all([owner, member].map(c => enterRoom(c, hub.hubId, { displayName: c.name })));
+      const seen = { owner: await featuresMenuSeen(owner), member: await featuresMenuSeen(member) };
+      await evidence.screenshot(owner, `features-${k.tag}-owner`);
+      await evidence.screenshot(member, `features-${k.tag}-member`);
+      for (const c of [owner, member]) await c.page.keyboard.press("Escape").catch(() => {});
+      await evidence.check(`Features menu with ${k.name}: the owner and a member each get the items they should`, "B5 F2 F9", async () => {
+        const judge = (s: typeof seen.owner, isOwner: boolean) => {
+          const want = expectedFeatureItems(k.on, isOwner);
+          const served = s.settings.recording === k.on.recording && s.settings.broadcast === k.on.broadcast && s.settings.nimpro === k.on.nimpro;
+          return { want, ok: served && s.isOwner === isOwner && s.button === want.length > 0 && s.items.join() === want.join() };
+        };
+        const [o, m] = [judge(seen.owner, true), judge(seen.member, false)];
+        const text = (name: string, s: typeof seen.owner, j: typeof o) =>
+          `${name} (owner role ${s.isOwner}): ${s.button ? `Features with ${s.items.join(", ") || "nothing"}` : "no Features button"}, wanted ${j.want.join(", ") || "no Features button"}`;
+        return {
+          ok: o.ok && m.ok,
+          summary: `${text("owner", seen.owner, o)}; ${text("member", seen.member, m)}; the page was served recording ${seen.owner.settings.recording}, public speaking ${seen.owner.settings.broadcast}, Nimpro ${seen.owner.settings.nimpro}`,
+          data: { on: k.on, seen }
+        };
+      });
+    }
+  } finally {
+    restoreFeatureSettings(stored);
+    await sleep(APP_CONFIG_CACHE_MS);
+  }
+  evidence.note("after the test: the three settings put back as they were when it began, and reticulum's cache waited out");
+  await closingChecks(evidence, [owner, member], ALLOW);
+}
+
 // ---------- The tests ----------
 
 test.describe("T6 features and the upstream intake", () => {
@@ -663,6 +742,10 @@ test.describe("T6 features and the upstream intake", () => {
     test.skip(ON_LIVEKIT, "runs once, in the Dialog block (the bitecs room is on Dialog)");
     test.setTimeout(20 * 60_000);
     await bitecsRoom(evidence);
+  });
+  test("T6.11 the Features menu follows its three admin settings and the room role", meta("t6.11", null, "B5 F2 F9"), async ({ evidence }) => {
+    test.skip(ON_LIVEKIT, "runs once, in the Dialog block (app settings; the menu does not depend on the media server)");
+    await featuresMenu(evidence);
   });
   for (const server of SERVERS) {
     const title = blockTitle(server);

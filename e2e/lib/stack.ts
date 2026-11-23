@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, request } from "@playwright/test";
-import { BASE_URL, COMPOSE_ROOT, sleep } from "./env";
+import { BASE_URL, COMPOSE_ROOT, EVIDENCE_DIR, sleep } from "./env";
 
 /** ffmpeg: winget's Gyan.FFmpeg is found even when it is not on PATH */
 export function ffmpegPath(): string {
@@ -126,4 +126,91 @@ export async function restartReticulum() {
   } finally {
     await api.dispose();
   }
+}
+
+// ---------- The admin settings of the toolbar's Features menu ----------
+
+/** The app settings that each put one item into the Features menu; all off by default (ChutvrcPopoversContainer.js) */
+export const FEATURE_SETTINGS = {
+  recording: "features|enable_recording",
+  broadcast: "features|enable_public_speaking",
+  nimpro: "features|enable_nimpro"
+} as const;
+export type FeatureName = keyof typeof FEATURE_SETTINGS;
+export type FeatureSwitches = Record<FeatureName, boolean>;
+export const ALL_FEATURES_ON: FeatureSwitches = { recording: true, broadcast: true, nimpro: true };
+
+/** Reticulum keeps app settings in caches for 10 s (:app_config) and 15 s (:app_config_value); this outlasts both */
+export const APP_CONFIG_CACHE_MS = 16_000;
+
+/** One setting's row as stored in ret0.app_configs; null when it has no row */
+export type StoredSetting = { value: string | null; insertedAt: string; updatedAt: string } | null;
+export type StoredFeatureSettings = Record<string, StoredSetting>;
+
+/** What ret0.app_configs holds for the three settings, as text, so it can be put back unchanged */
+export function readFeatureSettings(): StoredFeatureSettings {
+  const keys = Object.values(FEATURE_SETTINGS) as string[];
+  const rows = sql(`select key, coalesce(value::text, ''), inserted_at::text, updated_at::text from ret0.app_configs where key in (${keys.map(sqlText).join(", ")})`);
+  const stored: StoredFeatureSettings = Object.fromEntries(keys.map(k => [k, null]));
+  for (const row of rows.split("\n").filter(Boolean)) {
+    const [key, value, insertedAt, updatedAt] = row.split("\t");
+    stored[key] = { value: value === "" ? null : value, insertedAt, updatedAt };
+  }
+  return stored;
+}
+
+/** Writes the three settings as the admin page stores them, {"value": true} or {"value": false} */
+export function setFeatureSettings(wanted: FeatureSwitches) {
+  for (const name of Object.keys(FEATURE_SETTINGS) as FeatureName[]) {
+    sql(
+      `insert into ret0.app_configs (key, value, inserted_at, updated_at) values (${sqlText(FEATURE_SETTINGS[name])}, ${sqlText(JSON.stringify({ value: wanted[name] }))}::jsonb, now(), now()) ` +
+        `on conflict (key) do update set value = excluded.value, updated_at = now()`
+    );
+  }
+}
+
+/** Puts back what readFeatureSettings() returned: the same value and times, and no row where there was none */
+export function restoreFeatureSettings(stored: StoredFeatureSettings) {
+  for (const [key, row] of Object.entries(stored)) {
+    if (!row) {
+      sql(`delete from ret0.app_configs where key = ${sqlText(key)}`);
+      continue;
+    }
+    const value = row.value === null ? "null" : `${sqlText(row.value)}::jsonb`;
+    sql(
+      `insert into ret0.app_configs (key, value, inserted_at, updated_at) values (${sqlText(key)}, ${value}, ${sqlText(row.insertedAt)}::timestamp, ${sqlText(row.updatedAt)}::timestamp) ` +
+        `on conflict (key) do update set value = excluded.value, inserted_at = excluded.inserted_at, updated_at = excluded.updated_at`
+    );
+  }
+}
+
+/**
+ * What the settings held before this run. It is a file, so a run that is killed before its teardown leaves it
+ * behind and the next run still knows what to put back. It holds only these three settings.
+ */
+const FEATURE_SETTINGS_BEFORE_RUN = path.join(EVIDENCE_DIR, ".feature-settings-before-run.json");
+
+/** Turns the three settings on for a run, remembers what was stored, and waits out reticulum's cache when something changed */
+export async function enableFeaturesForRun(): Promise<{ changed: boolean; leftOver: boolean }> {
+  const leftOver = fs.existsSync(FEATURE_SETTINGS_BEFORE_RUN);
+  const current = readFeatureSettings();
+  if (!leftOver) {
+    fs.mkdirSync(path.dirname(FEATURE_SETTINGS_BEFORE_RUN), { recursive: true });
+    fs.writeFileSync(FEATURE_SETTINGS_BEFORE_RUN, JSON.stringify(current, null, 2));
+  }
+  const isOn = (row: StoredSetting) => !!row?.value && JSON.parse(row.value)?.value === true;
+  const changed = !Object.values(current).every(isOn);
+  if (changed) {
+    setFeatureSettings(ALL_FEATURES_ON);
+    await sleep(APP_CONFIG_CACHE_MS);
+  }
+  return { changed, leftOver };
+}
+
+/** Puts the settings back as they were before the run; false when there is nothing to put back */
+export function restoreFeaturesAfterRun(): boolean {
+  if (!fs.existsSync(FEATURE_SETTINGS_BEFORE_RUN)) return false;
+  restoreFeatureSettings(JSON.parse(fs.readFileSync(FEATURE_SETTINGS_BEFORE_RUN, "utf8")) as StoredFeatureSettings);
+  fs.rmSync(FEATURE_SETTINGS_BEFORE_RUN);
+  return true;
 }

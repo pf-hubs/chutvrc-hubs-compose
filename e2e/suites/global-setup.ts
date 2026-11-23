@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { request } from "@playwright/test";
 import { BASE_URL, FIXTURES_FILE } from "../lib/env";
-import { lanAddressProblem, restartReticulum, serverClockLag } from "../lib/stack";
+import { enableFeaturesForRun, lanAddressProblem, restartReticulum, serverClockLag } from "../lib/stack";
 import { activeLiveKitBlock, hasCloudValues, liveKitBlockFor, mediaBlock, setLiveKitBlock } from "../lib/livekit";
 import { readFixtures } from "../lib/fixtures";
 import { clipPath, MEDIA_SLOTS, type SlotName } from "../assets/media";
@@ -25,6 +25,12 @@ export default async function globalSetup() {
   for (const slot of Object.keys(MEDIA_SLOTS) as SlotName[]) {
     if (!fs.existsSync(clipPath(slot, "wav"))) throw new Error("the clips are missing: run npx tsx assets/generate.ts");
   }
+
+  // The Features menu's three admin settings are off by default, and the tests use what they switch on. What was
+  // stored is kept in a file; the teardown, which Playwright runs also after a failed setup or run, puts it back
+  const features = await enableFeaturesForRun();
+  if (features.leftOver) console.log("the Features settings of a run that did not finish are still on record: those are what the teardown puts back");
+  console.log(features.changed ? "Features settings turned on for this run (recording, public speaking, Nimpro); reticulum's cache waited out" : "Features settings already on");
 
   // Plan 1.4: the LiveKit block this run uses (MEDIA_BLOCK); the teardown puts back what was there.
   // Switching restarts reticulum, which also resets its clock (below).
